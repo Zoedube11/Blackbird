@@ -8,17 +8,19 @@ export default defineConfig({
     proxy: {
       // This proxy will forward everything cleanly and follow redirects
       "/proxy-api": {
-        target: "https://bb-booking-sys-production.up.railway.app",
+        target: "https://bb-booking-sys-production.up.railway.app/",
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/proxy-api/, ""),
-        followRedirects: true, // ← THIS IS THE KEY LINE (Vite supports it)
+        followRedirects: true,
       },
       "/login": {
-        target: "https://bb-booking-sys-production.up.railway.app",
+        target: "https://bb-booking-sys-production.up.railway.app/",
         changeOrigin: true,
         secure: true,
       },
     },
+  },
+});
   },
 });
