@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/login",
+      "destination": "https://bb-booking-sys-production.up.railway.app/login"
+    },
+    {
+      "source": "/proxy-api/:path*",
+      "destination": "https://bb-booking-sys-production.up.railway.app/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
