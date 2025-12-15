@@ -84,7 +84,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
           fetch("/proxy-api/services/", { headers: { Authorization: `Bearer ${token}` } }),
           fetch("/proxy-api/agents/", { headers: { Authorization: `Bearer ${token}` } }),
           fetch("/proxy-api/clients/", { headers: { Authorization: `Bearer ${token}` } }),
-          fetch("/proxy-api/bookings", { headers: { Authorization: `Bearer ${token}` } }),
+          fetch("/proxy-api/bookings/", { headers: { Authorization: `Bearer ${token}` } }),
         ]);
 
         if (servicesRes.ok) {
