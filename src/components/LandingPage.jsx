@@ -15,11 +15,10 @@ const LandingPage = ({
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loadedImages, setLoadedImages] = useState([]);
-  const [currentDirection, setCurrentDirection] = useState("up"); // up/down/left/right
+  const [currentDirection, setCurrentDirection] = useState("up");
   const [isLoading, setIsLoading] = useState(true);
   const autoplayRef = useRef(null);
 
-  // Load images
   useEffect(() => {
     const loadImages = async () => {
       setIsLoading(true);
@@ -42,7 +41,6 @@ const LandingPage = ({
     loadImages();
   }, [images]);
 
-  // Set direction helper
   const setDirection = useCallback(
     (dir) => {
       if (direction === "horizontal") {
@@ -54,7 +52,6 @@ const LandingPage = ({
     [direction]
   );
 
-  // Next/Prev
   const nextIndex = useCallback(() => {
     if (!loadedImages.length) return;
     setDirection("next");
@@ -69,14 +66,12 @@ const LandingPage = ({
     );
   }, [loadedImages.length, setDirection]);
 
-  // Autoplay
   useEffect(() => {
     if (!autoplay || !loadedImages.length) return;
     autoplayRef.current = setInterval(nextIndex, autoplayDelay);
     return () => clearInterval(autoplayRef.current);
   }, [autoplay, autoplayDelay, loadedImages.length, nextIndex]);
 
-  // Keyboard
   useEffect(() => {
     const handleKey = (e) => {
       if (["ArrowUp", "ArrowLeft"].includes(e.key)) prevIndex();
@@ -86,7 +81,6 @@ const LandingPage = ({
     return () => window.removeEventListener("keydown", handleKey);
   }, [prevIndex, nextIndex]);
 
-  // Swipe
   const swipeHandlers = useSwipeable({
     onSwipedLeft: direction === "horizontal" ? nextIndex : undefined,
     onSwipedRight: direction === "horizontal" ? prevIndex : undefined,
@@ -95,7 +89,6 @@ const LandingPage = ({
     preventDefaultTouchmoveEvent: true,
   });
 
-  // Variants mimicking Vue transform transitions
   const variants = {
     enter: (dir) => {
       switch (dir) {
@@ -168,6 +161,7 @@ const LandingPage = ({
 };
 
 export default LandingPage;
+
 
 
 
