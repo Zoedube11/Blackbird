@@ -332,7 +332,6 @@ useEffect(() => {
     console.log("Success response:", updated);
     console.log("Is array?", Array.isArray(updated));
     
-    // Handle both single service and array response
     if (Array.isArray(updated)) {
       console.warn("Backend returned array instead of single service");
       console.log("Searching for service with name:", payload.name);
