@@ -49,11 +49,13 @@ export default function ManagerDashboard({ user, onLogout }) {
   const [topMonthlyClient, setTopMonthlyClient] = useState(null);
   const [topTechnicians, setTopTechnicians] = useState([]);
   const token = localStorage.getItem("access_token");
-  const selectedDateKey = [
-  selectedDate.getFullYear(),
-  String(selectedDate.getMonth() + 1).padStart(2, "0"),
-  String(selectedDate.getDate()).padStart(2, "0")
-].join("-");
+const toLocalDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+const selectedDateKey = toLocalDateKey(selectedDate);
 
   const navItems = [
     { mode: "overview", label: "Overview", icon: BarChart3 },
@@ -435,7 +437,14 @@ export default function ManagerDashboard({ user, onLogout }) {
                               <div className="flex gap-4 items-start min-w-0">
                                 <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${booking.status === "confirmed" ? "bg-[#985f99]" : "bg-orange-400"}`} />
                                 <div className="min-w-0">
-                                  <p className="serif text-xl text-[#985f99] mb-1">{booking.start_time?.slice(11, 16)}</p>
+                                  <p className="serif text-xl text-[#985f99] mb-1">
+  {new Date(booking.start_time).toLocaleTimeString("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Africa/Johannesburg"
+  })}
+</p>
                                   <p className="text-sm font-medium text-[#985f99] cursor-pointer hover:underline mb-1 truncate" onClick={() => openClientHistory(booking.client.id)}>
                                     {booking.client.name}
                                   </p>
