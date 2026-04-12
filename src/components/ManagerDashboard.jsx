@@ -49,7 +49,11 @@ export default function ManagerDashboard({ user, onLogout }) {
   const [topMonthlyClient, setTopMonthlyClient] = useState(null);
   const [topTechnicians, setTopTechnicians] = useState([]);
   const token = localStorage.getItem("access_token");
-  const selectedDateKey = selectedDate.toISOString().split("T")[0];
+  const selectedDateKey = [
+  selectedDate.getFullYear(),
+  String(selectedDate.getMonth() + 1).padStart(2, "0"),
+  String(selectedDate.getDate()).padStart(2, "0")
+].join("-");
 
   const navItems = [
     { mode: "overview", label: "Overview", icon: BarChart3 },
