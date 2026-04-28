@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   Plus, CalendarDays, LogOut, Search, UserPlus, Trash2, Undo2,
   X, Edit3, UserCog, Check, ChevronLeft, ChevronRight, Calendar,
-  Scissors, ChevronDown,
+  Scissors, ChevronDown, Info,
 } from "lucide-react";
 
 const formatDateKey = (date) => {
@@ -62,6 +62,54 @@ const S = {
   label: "block text-xs font-semibold tracking-widest uppercase text-[#6B5E50]/50 mb-2",
 };
 
+// ── CLIENT DETAIL MODAL ──────────────────────────────────────────────────────
+function ClientDetailModal({ booking, clients, onClose }) {
+  const client = clients.find(c => c.id === booking.clientId);
+  const rows = [
+    { label: "Name",  value: booking.client },
+    { label: "Phone", value: client?.phone || "—" },
+    { label: "Email", value: client?.email || "—" },
+  ];
+  return (
+    <div className={S.modalOverlay}>
+      <div className="bg-white border border-[#D4AF87]/20 rounded-3xl p-8 max-w-sm w-full shadow-2xl">
+        {/* header */}
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="serif text-2xl text-[#985f99]">Client Details</h3>
+          <button onClick={onClose}
+            className="p-2 rounded-xl hover:bg-[#F8F6F2] text-[#6B5E50] transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* avatar initial */}
+        <div className="w-14 h-14 rounded-full bg-[#985f99]/10 border border-[#985f99]/20 flex items-center justify-center mb-6 mx-auto">
+          <span className="serif text-2xl text-[#985f99]">
+            {booking.client.charAt(0).toUpperCase()}
+          </span>
+        </div>
+
+        {/* detail rows */}
+        <div className="space-y-1">
+          {rows.map(({ label, value }) => (
+            <div key={label}
+              className="flex justify-between items-start py-3 border-b border-[#D4AF87]/10 last:border-0">
+              <span className="text-xs font-semibold tracking-widest uppercase text-[#6B5E50]/50 pt-0.5">
+                {label}
+              </span>
+              <span className="text-sm font-medium text-[#985f99] text-right max-w-[60%] break-all">
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={onClose} className={`mt-8 w-full ${S.btnPrimary}`}>Close</button>
+      </div>
+    </div>
+  );
+}
+
 export default function ReceptionistDashboard({ user, onLogout }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTech, setSelectedTech] = useState("");
@@ -84,6 +132,9 @@ export default function ReceptionistDashboard({ user, onLogout }) {
   const [confirmedBooking, setConfirmedBooking] = useState(null);
   const [deletedBooking, setDeletedBooking] = useState(null);
   const [undoTimeout, setUndoTimeout] = useState(null);
+
+  // ── Client detail modal state ──
+  const [clientDetailBooking, setClientDetailBooking] = useState(null);
 
   // Form states
   const [clientSearch, setClientSearch] = useState("");
@@ -300,7 +351,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
       const data = fixDecimalResponse(text);
       if (!data || !data.id) { showToast("error", "Invalid response"); return; }
 
-      // ── Look up client record for phone/email ──
       const clientRecord = clients.find(c => c.id === (data.client?.id || bookingForm.clientId));
 
       const formatted = {
@@ -383,6 +433,31 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     setShowBookingModal(true);
   };
 
+  // ── Reusable booking action buttons: Info · Edit · Cancel ────────────────────
+  const BookingActions = ({ booking }) => (
+    <div className="flex gap-2">
+      <button
+        onClick={() => setClientDetailBooking(booking)}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#D4AF87]/10 border border-[#D4AF87]/30 rounded-lg text-xs font-medium text-[#6B5E50] hover:bg-[#D4AF87]/20 transition-colors"
+        title="Client details"
+      >
+        <Info className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={() => openEdit(booking)}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99]/10 border border-[#985f99]/20 rounded-lg text-xs font-medium text-[#985f99] hover:bg-[#985f99]/20 transition-colors"
+      >
+        <Edit3 className="w-3.5 h-3.5" /> Edit
+      </button>
+      <button
+        onClick={() => deleteBooking(booking)}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200/60 rounded-lg text-xs font-medium text-red-500 hover:bg-red-100 transition-colors"
+      >
+        <Trash2 className="w-3.5 h-3.5" /> Cancel
+      </button>
+    </div>
+  );
+
   if (loading) return (
     <div className="min-h-screen bg-[#F8F6F2] flex items-center justify-center">
       <p className="text-xl text-[#985f99]/50">Loading...</p>
@@ -414,13 +489,11 @@ export default function ReceptionistDashboard({ user, onLogout }) {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-3">
             <div className="flex items-center justify-between bg-white/90 backdrop-blur-2xl border border-[#D4AF87]/20 rounded-2xl px-4 sm:px-6 py-3 sm:py-4 shadow-lg">
 
-              {/* Logo */}
               <div className="flex items-center gap-2 sm:gap-3">
                 <h1 className="serif text-xl sm:text-2xl text-[#985f99] tracking-tight">blackbird</h1>
                 <span className="hidden sm:block text-[10px] tracking-[4px] text-[#6B5E50] uppercase font-medium mt-0.5">Spa</span>
               </div>
 
-              {/* Desktop nav pills */}
               <nav className="hidden md:flex items-center gap-1">
                 {navItems.map(({ mode, label }) => (
                   <button key={mode} onClick={() => setViewMode(mode)}
@@ -430,18 +503,15 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                 ))}
               </nav>
 
-              {/* Right side */}
               <div className="flex items-center gap-2 sm:gap-3">
                 <span className="text-sm text-[#6B5E50]/60 hidden lg:block">{user?.name}</span>
 
-                {/* New booking button */}
                 <button onClick={() => setShowBookingModal(true)}
                   className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-[#985f99] text-white rounded-xl text-sm font-medium hover:bg-[#985f99]/90 transition-all shadow-sm">
                   <Plus className="w-4 h-4" />
                   <span className="hidden sm:inline">New Booking</span>
                 </button>
 
-                {/* Mobile menu */}
                 <div className="relative md:hidden">
                   <button onClick={() => setIsMenuOpen(!isMenuOpen)}
                     className="flex items-center gap-1.5 px-3 py-2 bg-[#985f99]/5 border border-[#D4AF87]/30 rounded-xl text-[#985f99] text-sm hover:bg-[#985f99]/10 transition-colors">
@@ -472,7 +542,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         <main className="pt-24 sm:pt-28 px-4 sm:px-6 pb-12">
           <div className="max-w-7xl mx-auto">
 
-            {/* Page header */}
             <div className="mb-8">
               <p className="text-xs tracking-[4px] uppercase text-[#6B5E50]/60 mb-2">
                 {selectedDate.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
@@ -538,16 +607,8 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                                     </div>
                                     <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-3 flex-shrink-0">
                                       <p className="font-semibold text-[#D4AF87]">R{booking.totalPrice.toFixed(2)}</p>
-                                      <div className="flex gap-2">
-                                        <button onClick={() => openEdit(booking)}
-                                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99]/10 border border-[#985f99]/20 rounded-lg text-xs font-medium text-[#985f99] hover:bg-[#985f99]/20 transition-colors">
-                                          <Edit3 className="w-3.5 h-3.5" /> Edit
-                                        </button>
-                                        <button onClick={() => deleteBooking(booking)}
-                                          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200/60 rounded-lg text-xs font-medium text-red-500 hover:bg-red-100 transition-colors">
-                                          <Trash2 className="w-3.5 h-3.5" /> Cancel
-                                        </button>
-                                      </div>
+                                      {/* ── Info · Edit · Cancel ── */}
+                                      <BookingActions booking={booking} />
                                     </div>
                                   </div>
                                 </div>
@@ -580,14 +641,42 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                       const dateKey = formatDateKey(new Date(year, month, d));
                       const dayBookings = (bookings[dateKey] || []).filter(b => b.status !== "cancelled" && (!selectedTech || b.technician === selectedTech));
                       cells.push(
-                        <div key={d} onClick={() => { setSelectedDate(new Date(year, month, d)); setViewMode("schedule"); }}
-                          className={`p-2 rounded-xl cursor-pointer transition-all min-h-[60px] sm:min-h-[80px] ${dayBookings.length > 0 ? "bg-[#985f99]/10 border border-[#985f99]/20 hover:bg-[#985f99]/15" : "bg-[#F8F6F2] border border-[#D4AF87]/10 hover:bg-[#985f99]/5"}`}>
-                          <p className={`text-sm font-medium ${dayBookings.length > 0 ? "text-[#985f99]" : "text-[#6B5E50]/50"}`}>{d}</p>
-                          <div className="mt-1 space-y-0.5 overflow-hidden">
+                        <div key={d}
+                          className={`p-2 rounded-xl transition-all min-h-[60px] sm:min-h-[80px] ${dayBookings.length > 0 ? "bg-[#985f99]/10 border border-[#985f99]/20 hover:bg-[#985f99]/15" : "bg-[#F8F6F2] border border-[#D4AF87]/10 hover:bg-[#985f99]/5"}`}>
+                          <p
+                            className={`text-sm font-medium cursor-pointer ${dayBookings.length > 0 ? "text-[#985f99]" : "text-[#6B5E50]/50"}`}
+                            onClick={() => { setSelectedDate(new Date(year, month, d)); setViewMode("schedule"); }}
+                          >
+                            {d}
+                          </p>
+                          <div className="mt-1 space-y-1 overflow-hidden">
                             {dayBookings.slice(0, 2).map(b => (
-                              <div key={b.id} className="text-[10px] text-[#985f99]/70 truncate">{b.time} {b.client}</div>
+                              <div key={b.id} className="flex items-center justify-between gap-1 group">
+                                {/* clicking the text navigates to day view */}
+                                <span
+                                  className="text-[10px] text-[#985f99]/70 truncate cursor-pointer hover:text-[#985f99]"
+                                  onClick={() => { setSelectedDate(new Date(year, month, d)); setViewMode("schedule"); }}
+                                >
+                                  {b.time} {b.client}
+                                </span>
+                                {/* info icon — visible on hover */}
+                                <button
+                                  onClick={() => setClientDetailBooking(b)}
+                                  className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-0.5 rounded text-[#6B5E50]/50 hover:text-[#985f99] transition-all"
+                                  title="Client details"
+                                >
+                                  <Info className="w-3 h-3" />
+                                </button>
+                              </div>
                             ))}
-                            {dayBookings.length > 2 && <div className="text-[10px] text-[#6B5E50]/40">+{dayBookings.length - 2} more</div>}
+                            {dayBookings.length > 2 && (
+                              <div
+                                className="text-[10px] text-[#6B5E50]/40 cursor-pointer hover:text-[#985f99]"
+                                onClick={() => { setSelectedDate(new Date(year, month, d)); setViewMode("schedule"); }}
+                              >
+                                +{dayBookings.length - 2} more
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -692,7 +781,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               </div>
               <form onSubmit={confirmBooking} className="space-y-5">
 
-                {/* Date + Client */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className={S.label}>Date</label>
@@ -727,7 +815,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                   </div>
                 </div>
 
-                {/* Services */}
                 <div>
                   <label className={S.label}>Services</label>
                   <div className="space-y-4 max-h-72 overflow-y-auto pr-1">
@@ -762,7 +849,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                   )}
                 </div>
 
-                {/* Technician + Time */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className={S.label}>Technician</label>
@@ -872,6 +958,15 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               <button onClick={() => setShowConfirmation(false)} className={`mt-8 w-full ${S.btnPrimary}`}>Done</button>
             </div>
           </div>
+        )}
+
+        {/* ── CLIENT DETAIL MODAL ── */}
+        {clientDetailBooking && (
+          <ClientDetailModal
+            booking={clientDetailBooking}
+            clients={clients}
+            onClose={() => setClientDetailBooking(null)}
+          />
         )}
 
       </div>
