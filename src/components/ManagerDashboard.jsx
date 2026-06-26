@@ -58,23 +58,6 @@ export default function ManagerDashboard({ user, onLogout }) {
   };
   const selectedDateKey = toLocalDateKey(selectedDate);
 
-  const toLocalDateKey = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-  const selectedDateKey = toLocalDateKey(selectedDate);
-
-  const navItems = [
-    { mode: "overview", label: "Overview", icon: BarChart3 },
-    { mode: "schedule", label: "Schedule", icon: CalendarDays },
-    { mode: "revenue", label: "Revenue", icon: TrendingUp },
-    { mode: "analytics", label: "Analytics", icon: Star },
-    { mode: "technicians", label: "Technicians", icon: UserCog },
-    { mode: "services", label: "Services", icon: Scissors },
-  ];
-
   const navItems = [
     { mode: "overview", label: "Overview", icon: BarChart3 },
     { mode: "schedule", label: "Schedule", icon: CalendarDays },

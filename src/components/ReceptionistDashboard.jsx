@@ -154,22 +154,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     { mode: "agents", label: "Technicians", icon: UserCog },
   ];
 
-  // Sync service form when modal opens
-  useEffect(() => {
-    if (showEditServiceModal) {
-      if (editingService) {
-        setServiceForm({
-          name: editingService.name || "",
-          category: editingService.category || "",
-          duration_minutes: String(editingService.duration || ""),
-          price: String(editingService.price || ""),
-          description: "",
-        });
-      } else {
-        setServiceForm({ name: "", category: "", duration_minutes: "", price: "", description: "" });
-      }
-    }
-  }, [showEditServiceModal, editingService]);
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -293,71 +278,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     }));
   };
 
-  const addClient = async () => {
-    if (!newClient.name.trim() || !newClient.phone.trim()) return showToast("error", "Name and phone required");
-    const token = localStorage.getItem("access_token");
-    const payload = { name: trimmedName, category: trimmedCategory, duration_minutes: duration, price: priceValue };
-    const trimmedDesc = serviceForm.description?.trim();
-    if (trimmedDesc) payload.description = trimmedDesc;
 
-    try {
-      const res = editingService
-        ? await fetch(`/proxy-api/services/${editingService.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) })
-        : await fetch("/proxy-api/services/", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
-      if (!res.ok) { showToast("error", editingService ? "Failed to update service" : "Failed to create service"); return; }
-      const updated = await res.json();
-      if (editingService) {
-        setServices(prev => prev.map(s => s.id === updated.id
-          ? { id: updated.id, name: updated.name, price: parseFloat(updated.price), duration: updated.duration_minutes, category: updated.category || "General" }
-          : s));
-        showToast("success", "Service updated");
-      } else {
-        setServices(prev => [...prev, { id: updated.id, name: updated.name, price: parseFloat(updated.price), duration: updated.duration_minutes, category: updated.category || "General" }]);
-        showToast("success", "Service created");
-      }
-      setShowEditServiceModal(false);
-      setEditingService(null);
-    } catch { showToast("error", "Failed to save service"); }
-    finally { setSavingService(false); }
-  };
-
-  // ── Save technician (modal) ──────────────────────────────────────────────
-  const handleSaveTech = async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const payload = { name: form.techName.value, specialization: form.specialization.value || null, email: form.email.value };
-    if (!editingTech) { payload.password = form.password.value; payload.active_status = true; }
-
-    setSavingTech(true);
-    const token = localStorage.getItem("access_token");
-    try {
-      const res = await fetch("/proxy-api/services/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: newClient.name.trim(), phone: newClient.phone.trim(), email: newClient.email.trim() || null }),
-      });
-      if (!res.ok) {
-        const e = await res.json();
-        showToast("error", e.detail || "Failed to add service");
-        return;
-      }
-      const created = await res.json();
-      setServices(prev => [...prev, {
-        id: created.id,
-        name: created.name,
-        price: parseFloat(created.price),
-        duration: created.duration_minutes,
-        category: created.category || "General",
-      }]);
-      setNewService({ name: "", price: "", duration: "", category: "" });
-      setShowServiceModal(false);
-      showToast("success", "Service added");
-    } catch {
-      showToast("error", "Network error");
-    } finally {
-      setAddingService(false);
-    }
-  };
 
   // ── Toggle tech active status ────────────────────────────────────────────
   const toggleTechStatus = async (tech) => {
@@ -821,7 +742,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
             {viewMode === "agents" && (
               <div>
                 <div className="flex justify-end mb-6">
-                  <button onClick={() => { setEditingTech(null); setShowEditTechModal(true); }}
+                  <button onClick={() => setShowTechModal(true)}
                     className="flex items-center gap-2 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-sm font-medium shadow-sm transition-all">
                     <Plus className="w-4 h-4" /> Add Technician
                   </button>
@@ -876,44 +797,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
           </div>
         )}
 
-        {/* ── EDIT SERVICE MODAL (manager-style) ── */}
-        {showEditServiceModal && (
-          <div className={modalOverlay}>
-            <div className={modalBox}>
-              <h3 className="serif text-2xl text-[#985f99] mb-6">{editingService ? "Edit" : "Add"} Service</h3>
-              <form onSubmit={handleSaveService}>
-                <input value={serviceForm.name} onChange={e => setServiceForm(p => ({ ...p, name: e.target.value }))} required className={inputClass} placeholder="Service name" />
-                <input value={serviceForm.category} onChange={e => setServiceForm(p => ({ ...p, category: e.target.value }))} required className={inputClass} placeholder="Category" />
-                <input type="number" value={serviceForm.duration_minutes} onChange={e => setServiceForm(p => ({ ...p, duration_minutes: e.target.value }))} required className={inputClass} placeholder="Duration (minutes)" />
-                <input type="number" step="0.01" value={serviceForm.price} onChange={e => setServiceForm(p => ({ ...p, price: e.target.value }))} required className={inputClass} placeholder="Price (R)" />
-                <textarea value={serviceForm.description} onChange={e => setServiceForm(p => ({ ...p, description: e.target.value }))} className={`${inputClass} resize-none h-20`} placeholder="Description (optional)" />
-                <div className="flex gap-3 mt-2">
-                  <button type="button" onClick={() => { setShowEditServiceModal(false); setEditingService(null); }} className={btnSecondary}>Cancel</button>
-                  <button type="submit" disabled={savingService} className={`${btnPrimary} disabled:opacity-50`}>{savingService ? "Saving…" : "Save"}</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
 
-        {/* ── EDIT TECH MODAL (manager-style) ── */}
-        {showEditTechModal && (
-          <div className={modalOverlay}>
-            <div className={modalBox}>
-              <h3 className="serif text-2xl text-[#985f99] mb-6">{editingTech ? "Edit" : "Add"} Technician</h3>
-              <form onSubmit={handleSaveTech}>
-                <input name="techName" defaultValue={editingTech?.name || ""} required className={inputClass} placeholder="Full name" />
-                <input name="email" type="email" defaultValue={editingTech?.email || ""} required className={inputClass} placeholder="Email address" />
-                <input name="specialization" defaultValue={editingTech?.specialization || ""} className={inputClass} placeholder="Specialization (optional)" />
-                {!editingTech && <input name="password" type="password" required className={inputClass} placeholder="Password" />}
-                <div className="flex gap-3 mt-2">
-                  <button type="button" onClick={() => { setShowEditTechModal(false); setEditingTech(null); }} className={btnSecondary}>Cancel</button>
-                  <button type="submit" disabled={savingTech} className={`${btnPrimary} disabled:opacity-50`}>{savingTech ? "Saving…" : "Save"}</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
 
         {/* ── BOOKING MODAL ── */}
         {showBookingModal && (
