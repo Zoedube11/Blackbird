@@ -58,6 +58,23 @@ export default function ManagerDashboard({ user, onLogout }) {
   };
   const selectedDateKey = toLocalDateKey(selectedDate);
 
+  const toLocalDateKey = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const selectedDateKey = toLocalDateKey(selectedDate);
+
+  const navItems = [
+    { mode: "overview", label: "Overview", icon: BarChart3 },
+    { mode: "schedule", label: "Schedule", icon: CalendarDays },
+    { mode: "revenue", label: "Revenue", icon: TrendingUp },
+    { mode: "analytics", label: "Analytics", icon: Star },
+    { mode: "technicians", label: "Technicians", icon: UserCog },
+    { mode: "services", label: "Services", icon: Scissors },
+  ];
+
   const navItems = [
     { mode: "overview", label: "Overview", icon: BarChart3 },
     { mode: "schedule", label: "Schedule", icon: CalendarDays },
@@ -448,6 +465,7 @@ export default function ManagerDashboard({ user, onLogout }) {
                               <div className="flex gap-4 items-start min-w-0">
                                 <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${booking.status === "confirmed" ? "bg-[#985f99]" : "bg-orange-400"}`} />
                                 <div className="min-w-0">
+                                  {/* ── FIX: display UTC timestamp in SAST ── */}
                                   <p className="serif text-xl text-[#985f99] mb-1">
                                     {toSASTTime(booking.start_time)}
                                   </p>
