@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Plus, CalendarDays, LogOut, Search, UserPlus, Trash2, Undo2,
-  X, Pencil, UserCog, Check, ChevronLeft, ChevronRight, Calendar,
-  Scissors, ChevronDown, Save,
+  X, UserCog, Check, ChevronLeft, ChevronRight, Calendar,
+  Scissors, ChevronDown, Edit3, UserX,
 } from "lucide-react";
 
 const formatDateKey = (date) => date.toISOString().split("T")[0];
@@ -25,7 +25,6 @@ const S = {
   modalOverlay: "fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[130] p-4",
   modalBox: "bg-white border border-[#D4AF87]/20 rounded-3xl p-8 w-full shadow-2xl max-h-[90vh] overflow-y-auto",
   label: "block text-xs font-semibold tracking-widest uppercase text-[#6B5E50]/50 mb-2",
-  inlineInput: "px-2 py-1 rounded-lg bg-[#F8F6F2] border border-[#985f99]/30 text-[#2d1f2d] focus:outline-none focus:border-[#985f99]/60 transition-colors text-sm w-full",
 };
 
 export default function ReceptionistDashboard({ user, onLogout }) {
@@ -41,14 +40,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
   const [viewMode, setViewMode] = useState("schedule");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // Edit states
-  const [editingServiceId, setEditingServiceId] = useState(null);
-  const [editingServiceData, setEditingServiceData] = useState({});
-  const [editingTechId, setEditingTechId] = useState(null);
-  const [editingTechData, setEditingTechData] = useState({});
-  const [savingService, setSavingService] = useState(false);
-  const [savingTech, setSavingTech] = useState(false);
-
   // Modals
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showClientModal, setShowClientModal] = useState(false);
@@ -60,9 +51,16 @@ export default function ReceptionistDashboard({ user, onLogout }) {
   const [deletedBooking, setDeletedBooking] = useState(null);
   const [undoTimeout, setUndoTimeout] = useState(null);
 
-  // New service form state
-  const [newService, setNewService] = useState({ name: "", price: "", duration: "", category: "" });
-  const [addingService, setAddingService] = useState(false);
+  // Edit modals — manager-style
+  const [showEditTechModal, setShowEditTechModal] = useState(false);
+  const [editingTech, setEditingTech] = useState(null);
+  const [showEditServiceModal, setShowEditServiceModal] = useState(false);
+  const [editingService, setEditingService] = useState(null);
+  const [serviceForm, setServiceForm] = useState({
+    name: "", category: "", duration_minutes: "", price: "", description: "",
+  });
+  const [savingService, setSavingService] = useState(false);
+  const [savingTech, setSavingTech] = useState(false);
 
   // Form states
   const [clientSearch, setClientSearch] = useState("");
@@ -80,6 +78,23 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     { mode: "services", label: "Services", icon: Scissors },
     { mode: "agents", label: "Technicians", icon: UserCog },
   ];
+
+  // Sync service form when modal opens
+  useEffect(() => {
+    if (showEditServiceModal) {
+      if (editingService) {
+        setServiceForm({
+          name: editingService.name || "",
+          category: editingService.category || "",
+          duration_minutes: String(editingService.duration || ""),
+          price: String(editingService.price || ""),
+          description: "",
+        });
+      } else {
+        setServiceForm({ name: "", category: "", duration_minutes: "", price: "", description: "" });
+      }
+    }
+  }, [showEditServiceModal, editingService]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -168,6 +183,11 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     setTimeout(() => setToast(null), 4000);
   };
 
+  const formatCurrency = (value) => {
+    const num = parseFloat(value);
+    return isNaN(num) ? "0.00" : num.toFixed(2);
+  };
+
   const changeDate = (delta) => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + delta);
@@ -186,140 +206,83 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     setClientSearch("");
   };
 
-  // ── Service editing ──────────────────────────────────────────────────────
-  const startEditService = (service) => {
-    setEditingServiceId(service.id);
-    setEditingServiceData({ name: service.name, price: service.price, duration: service.duration, category: service.category });
-  };
-
-  const cancelEditService = () => {
-    setEditingServiceId(null);
-    setEditingServiceData({});
-  };
-
-  const saveService = async (serviceId) => {
-    const { name, price, duration, category } = editingServiceData;
-    if (!name?.trim()) return showToast("error", "Service name is required");
-    const parsedPrice = parseFloat(price);
-    const parsedDuration = parseInt(duration, 10);
-    if (isNaN(parsedPrice) || parsedPrice < 0) return showToast("error", "Invalid price");
-    if (isNaN(parsedDuration) || parsedDuration < 1) return showToast("error", "Invalid duration");
+  // ── Save service (modal) ─────────────────────────────────────────────────
+  const handleSaveService = async (e) => {
+    e.preventDefault();
+    const trimmedName = serviceForm.name.trim();
+    const trimmedCategory = serviceForm.category.trim();
+    if (!trimmedName) { showToast("error", "Name is required"); return; }
+    if (!trimmedCategory) { showToast("error", "Category is required"); return; }
+    const duration = parseInt(serviceForm.duration_minutes, 10);
+    if (isNaN(duration) || duration <= 0) { showToast("error", "Duration must be a positive integer"); return; }
+    const priceValue = parseFloat(serviceForm.price);
+    if (isNaN(priceValue) || priceValue <= 0) { showToast("error", "Price must be a positive number"); return; }
 
     setSavingService(true);
     const token = localStorage.getItem("access_token");
+    const payload = { name: trimmedName, category: trimmedCategory, duration_minutes: duration, price: priceValue };
+    const trimmedDesc = serviceForm.description?.trim();
+    if (trimmedDesc) payload.description = trimmedDesc;
+
     try {
-      const res = await fetch(`/proxy-api/services/${serviceId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: name.trim(), price: parsedPrice, duration_minutes: parsedDuration, category: category?.trim() || "General" }),
-      });
-      if (!res.ok) {
-        const e = await res.json();
-        showToast("error", e.detail || "Failed to update service");
-        return;
+      const res = editingService
+        ? await fetch(`/proxy-api/services/${editingService.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) })
+        : await fetch("/proxy-api/services/", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+      if (!res.ok) { showToast("error", editingService ? "Failed to update service" : "Failed to create service"); return; }
+      const updated = await res.json();
+      if (editingService) {
+        setServices(prev => prev.map(s => s.id === updated.id
+          ? { id: updated.id, name: updated.name, price: parseFloat(updated.price), duration: updated.duration_minutes, category: updated.category || "General" }
+          : s));
+        showToast("success", "Service updated");
+      } else {
+        setServices(prev => [...prev, { id: updated.id, name: updated.name, price: parseFloat(updated.price), duration: updated.duration_minutes, category: updated.category || "General" }]);
+        showToast("success", "Service created");
       }
-      setServices(prev => prev.map(s => s.id === serviceId
-        ? { ...s, name: name.trim(), price: parsedPrice, duration: parsedDuration, category: category?.trim() || "General" }
-        : s
-      ));
-      setEditingServiceId(null);
-      setEditingServiceData({});
-      showToast("success", "Service updated");
-    } catch {
-      showToast("error", "Network error");
-    } finally {
-      setSavingService(false);
-    }
+      setShowEditServiceModal(false);
+      setEditingService(null);
+    } catch { showToast("error", "Failed to save service"); }
+    finally { setSavingService(false); }
   };
 
-  // ── Add service ──────────────────────────────────────────────────────────
-  const addService = async () => {
-    const { name, price, duration, category } = newService;
-    if (!name.trim()) return showToast("error", "Service name is required");
-    const parsedPrice = parseFloat(price);
-    const parsedDuration = parseInt(duration, 10);
-    if (isNaN(parsedPrice) || parsedPrice < 0) return showToast("error", "Invalid price");
-    if (isNaN(parsedDuration) || parsedDuration < 1) return showToast("error", "Invalid duration");
-
-    setAddingService(true);
-    const token = localStorage.getItem("access_token");
-    try {
-      const res = await fetch("/proxy-api/services/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          name: name.trim(),
-          price: parsedPrice,
-          duration_minutes: parsedDuration,
-          category: category.trim() || "General",
-        }),
-      });
-      if (!res.ok) {
-        const e = await res.json();
-        showToast("error", e.detail || "Failed to add service");
-        return;
-      }
-      const created = await res.json();
-      setServices(prev => [...prev, {
-        id: created.id,
-        name: created.name,
-        price: parseFloat(created.price),
-        duration: created.duration_minutes,
-        category: created.category || "General",
-      }]);
-      setNewService({ name: "", price: "", duration: "", category: "" });
-      setShowServiceModal(false);
-      showToast("success", "Service added");
-    } catch {
-      showToast("error", "Network error");
-    } finally {
-      setAddingService(false);
-    }
-  };
-
-  // ── Technician editing ───────────────────────────────────────────────────
-  const startEditTech = (tech) => {
-    setEditingTechId(tech.id);
-    setEditingTechData({ name: tech.name, specialization: tech.specialization || "", active_status: tech.active_status });
-  };
-
-  const cancelEditTech = () => {
-    setEditingTechId(null);
-    setEditingTechData({});
-  };
-
-  const saveTech = async (techId) => {
-    const { name, specialization, active_status } = editingTechData;
-    if (!name?.trim()) return showToast("error", "Technician name is required");
+  // ── Save technician (modal) ──────────────────────────────────────────────
+  const handleSaveTech = async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const payload = { name: form.techName.value, specialization: form.specialization.value || null, email: form.email.value };
+    if (!editingTech) { payload.password = form.password.value; payload.active_status = true; }
 
     setSavingTech(true);
     const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(`/proxy-api/agents/${techId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: name.trim(), specialization: specialization?.trim() || null, active_status }),
-      });
-      if (!res.ok) {
-        const e = await res.json();
-        showToast("error", e.detail || "Failed to update technician");
-        return;
-      }
-      setAvailableTechs(prev => prev.map(t => t.id === techId
-        ? { ...t, name: name.trim(), specialization: specialization?.trim() || null, active_status }
-        : t
-      ));
-      setEditingTechId(null);
-      setEditingTechData({});
-      showToast("success", "Technician updated");
-    } catch {
-      showToast("error", "Network error");
-    } finally {
-      setSavingTech(false);
-    }
+      const res = editingTech
+        ? await fetch(`/proxy-api/agents/${editingTech.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) })
+        : await fetch("/proxy-api/agents/create", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+      if (!res.ok) { showToast("error", editingTech ? "Failed to update" : "Failed to create"); return; }
+      const updated = await res.json();
+      editingTech
+        ? setAvailableTechs(prev => prev.map(t => t.id === updated.id ? { ...updated, active_status: updated.active_status ?? t.active_status } : t))
+        : setAvailableTechs(prev => [...prev, { ...updated, active_status: true }]);
+      showToast("success", editingTech ? "Technician updated" : "Technician created");
+      setShowEditTechModal(false);
+      setEditingTech(null);
+    } catch { showToast("error", "Failed to save technician"); }
+    finally { setSavingTech(false); }
   };
 
-  // ── Existing handlers ────────────────────────────────────────────────────
+  // ── Toggle tech active status ────────────────────────────────────────────
+  const toggleTechStatus = async (tech) => {
+    const token = localStorage.getItem("access_token");
+    try {
+      const res = await fetch(`/proxy-api/agents/${tech.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ active_status: !tech.active_status }) });
+      if (!res.ok) { showToast("error", "Failed to update status"); return; }
+      const updated = await res.json();
+      setAvailableTechs(prev => prev.map(t => t.id === updated.id ? updated : t));
+      showToast("success", `Technician ${updated.active_status ? "activated" : "deactivated"}`);
+    } catch { showToast("error", "Failed to update status"); }
+  };
+
+  // ── Existing booking handlers ────────────────────────────────────────────
   const addClient = async () => {
     if (!newClient.name.trim() || !newClient.phone.trim()) return showToast("error", "Name and phone required");
     const token = localStorage.getItem("access_token");
@@ -484,6 +447,13 @@ export default function ReceptionistDashboard({ user, onLogout }) {
 
   const viewLabel = navItems.find(n => n.mode === viewMode)?.label;
 
+  // Modal style constants (matching manager)
+  const modalOverlay = "fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[130] p-4";
+  const modalBox = "bg-white border border-[#D4AF87]/20 rounded-3xl p-8 max-w-md w-full shadow-2xl";
+  const inputClass = "w-full mb-4 px-4 py-3 rounded-xl bg-[#F8F6F2] border border-[#D4AF87]/30 text-[#2d1f2d] placeholder-[#6B5E50]/40 focus:outline-none focus:border-[#985f99]/40 transition-colors text-sm";
+  const btnPrimary = "flex-1 py-3 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl font-medium transition-colors text-sm";
+  const btnSecondary = "flex-1 py-3 bg-[#F8F6F2] hover:bg-[#f0ebe3] border border-[#D4AF87]/30 text-[#6B5E50] rounded-xl font-medium transition-colors text-sm";
+
   return (
     <>
       <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -493,12 +463,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         .glow-dot { box-shadow: 0 0 8px currentColor; }
         * { font-family: 'DM Sans', sans-serif; }
         .serif { font-family: 'DM Serif Display', serif; }
-        .edit-row input, .edit-row select { font-size: 13px; }
-        .toggle-pill { position: relative; display: inline-flex; align-items: center; width: 40px; height: 22px; border-radius: 99px; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
-        .toggle-pill .knob { position: absolute; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: white; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
-        .toggle-pill.on { background: #985f99; }
-        .toggle-pill.off { background: #D4AF87; }
-        .toggle-pill.on .knob { transform: translateX(18px); }
       `}</style>
 
       <div className="min-h-screen bg-[#F8F6F2] text-[#2d1f2d]">
@@ -555,7 +519,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         <main className="pt-24 sm:pt-28 px-4 sm:px-6 pb-12">
           <div className="max-w-7xl mx-auto">
 
-            <div className="mb-8">
+            <div className="mb-10">
               <p className="text-xs tracking-[4px] uppercase text-[#6B5E50]/60 mb-2">
                 {selectedDate.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </p>
@@ -618,7 +582,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                                       <div className="flex gap-2">
                                         <button onClick={() => openEdit(booking)}
                                           className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99]/10 border border-[#985f99]/20 rounded-lg text-xs font-medium text-[#985f99] hover:bg-[#985f99]/20 transition-colors">
-                                          <Pencil className="w-3.5 h-3.5" /> Edit
+                                          <Edit3 className="w-3.5 h-3.5" /> Edit
                                         </button>
                                         <button onClick={() => deleteBooking(booking)}
                                           className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200/60 rounded-lg text-xs font-medium text-red-500 hover:bg-red-100 transition-colors">
@@ -675,105 +639,31 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               </div>
             )}
 
-            {/* ─ SERVICES ─ */}
+            {/* ─ SERVICES — matches manager exactly ─ */}
             {viewMode === "services" && (
-              <div className="space-y-6">
-                {/* Add Service button — mirrors the Technicians pattern */}
-                <div className="flex justify-end">
-                  <button onClick={() => setShowServiceModal(true)}
+              <div>
+                <div className="flex justify-end mb-6">
+                  <button onClick={() => { setEditingService(null); setShowEditServiceModal(true); }}
                     className="flex items-center gap-2 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-sm font-medium shadow-sm transition-all">
                     <Plus className="w-4 h-4" /> Add Service
                   </button>
                 </div>
-
                 {Object.entries(groupedServices).map(([category, items]) => (
-                  <div key={category}>
-                    <p className="text-xs tracking-widest uppercase text-[#6B5E50]/40 mb-3">{category}</p>
-                    <div className="space-y-2">
-                      {items.map(service => {
-                        const isEditing = editingServiceId === service.id;
-                        return (
-                          <div key={service.id} className="stat-card border border-[#D4AF87]/20 rounded-xl shadow-sm overflow-hidden">
-                            {isEditing ? (
-                              /* ── Edit row ── */
-                              <div className="edit-row p-4 sm:p-5 space-y-3">
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                  <div>
-                                    <label className={S.label}>Name</label>
-                                    <input
-                                      type="text"
-                                      value={editingServiceData.name}
-                                      onChange={e => setEditingServiceData(p => ({ ...p, name: e.target.value }))}
-                                      className={S.inlineInput}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className={S.label}>Price (R)</label>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="0.01"
-                                      value={editingServiceData.price}
-                                      onChange={e => setEditingServiceData(p => ({ ...p, price: e.target.value }))}
-                                      className={S.inlineInput}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className={S.label}>Duration (min)</label>
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      value={editingServiceData.duration}
-                                      onChange={e => setEditingServiceData(p => ({ ...p, duration: e.target.value }))}
-                                      className={S.inlineInput}
-                                    />
-                                  </div>
-                                </div>
-                                <div>
-                                  <label className={S.label}>Category</label>
-                                  <input
-                                    type="text"
-                                    value={editingServiceData.category}
-                                    onChange={e => setEditingServiceData(p => ({ ...p, category: e.target.value }))}
-                                    className={S.inlineInput}
-                                    placeholder="e.g. Nails, Massage, Facial"
-                                  />
-                                </div>
-                                <div className="flex gap-2 pt-1">
-                                  <button
-                                    onClick={() => saveService(service.id)}
-                                    disabled={savingService}
-                                    className="flex items-center gap-1.5 px-4 py-2 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                                    <Save className="w-3.5 h-3.5" />
-                                    {savingService ? "Saving…" : "Save"}
-                                  </button>
-                                  <button
-                                    onClick={cancelEditService}
-                                    className="flex items-center gap-1.5 px-4 py-2 bg-[#F8F6F2] hover:bg-[#f0ebe3] border border-[#D4AF87]/30 text-[#6B5E50] rounded-lg text-xs font-medium transition-colors">
-                                    <X className="w-3.5 h-3.5" /> Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              /* ── Display row ── */
-                              <div className="p-4 sm:p-5 flex items-center justify-between">
-                                <div>
-                                  <p className="font-medium text-[#985f99]">{service.name}</p>
-                                  <p className="text-xs text-[#6B5E50]/50 mt-0.5">{service.duration} min</p>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <p className="font-semibold text-[#D4AF87]">R{service.price.toFixed(2)}</p>
-                                  <button
-                                    onClick={() => startEditService(service)}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99] hover:bg-[#985f99]/90 rounded-lg text-xs font-medium text-white transition-colors shadow-sm">
-                                    <Pencil className="w-3.5 h-3.5" /> Edit
-                                  </button>
-                                </div>
-                              </div>
-                            )}
+                  <div key={category} className="mb-8">
+                    <p className="text-xs tracking-widest uppercase text-[#6B5E50]/40 mb-4">{category}</p>
+                    <div className="space-y-3">
+                      {items.map(service => (
+                        <div key={service.id} className="stat-card border border-[#D4AF87]/20 rounded-2xl p-5 flex items-center justify-between hover:shadow-md transition-all shadow-sm">
+                          <div>
+                            <p className="font-medium text-[#985f99] mb-1">{service.name}</p>
+                            <p className="text-xs text-[#6B5E50]/50">R{formatCurrency(service.price)} · {service.duration} min</p>
                           </div>
-                        );
-                      })}
+                          <button onClick={() => { setEditingService(service); setShowEditServiceModal(true); }}
+                            className="p-2.5 bg-[#985f99]/8 border border-[#985f99]/15 rounded-xl hover:bg-[#985f99]/15 transition-colors flex-shrink-0">
+                            <Edit3 className="w-4 h-4 text-[#985f99]" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -783,96 +673,38 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               </div>
             )}
 
-            {/* ─ AGENTS ─ */}
+            {/* ─ TECHNICIANS — matches manager exactly ─ */}
             {viewMode === "agents" && (
               <div>
-                <div className="flex justify-end mb-5">
-                  <button onClick={() => setShowTechModal(true)}
+                <div className="flex justify-end mb-6">
+                  <button onClick={() => { setEditingTech(null); setShowEditTechModal(true); }}
                     className="flex items-center gap-2 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-sm font-medium shadow-sm transition-all">
                     <Plus className="w-4 h-4" /> Add Technician
                   </button>
                 </div>
                 <div className="space-y-3">
-                  {availableTechs.map(agent => {
-                    const isEditing = editingTechId === agent.id;
-                    return (
-                      <div key={agent.id} className="stat-card border border-[#D4AF87]/20 rounded-xl shadow-sm overflow-hidden">
-                        {isEditing ? (
-                          /* ── Edit row ── */
-                          <div className="edit-row p-4 sm:p-5 space-y-3">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div>
-                                <label className={S.label}>Name</label>
-                                <input
-                                  type="text"
-                                  value={editingTechData.name}
-                                  onChange={e => setEditingTechData(p => ({ ...p, name: e.target.value }))}
-                                  className={S.inlineInput}
-                                />
-                              </div>
-                              <div>
-                                <label className={S.label}>Specialization</label>
-                                <input
-                                  type="text"
-                                  value={editingTechData.specialization}
-                                  onChange={e => setEditingTechData(p => ({ ...p, specialization: e.target.value }))}
-                                  className={S.inlineInput}
-                                  placeholder="e.g. Massage, Nails"
-                                />
-                              </div>
-                            </div>
-                            {/* Active status toggle */}
-                            <div className="flex items-center gap-3">
-                              <span className={S.label} style={{ marginBottom: 0 }}>Active</span>
-                              <button
-                                type="button"
-                                onClick={() => setEditingTechData(p => ({ ...p, active_status: !p.active_status }))}
-                                className={`toggle-pill ${editingTechData.active_status ? "on" : "off"}`}
-                                aria-label="Toggle active status">
-                                <span className="knob" />
-                              </button>
-                              <span className="text-xs text-[#6B5E50]/60">
-                                {editingTechData.active_status ? "Available for bookings" : "Not available"}
-                              </span>
-                            </div>
-                            <div className="flex gap-2 pt-1">
-                              <button
-                                onClick={() => saveTech(agent.id)}
-                                disabled={savingTech}
-                                className="flex items-center gap-1.5 px-4 py-2 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                                <Save className="w-3.5 h-3.5" />
-                                {savingTech ? "Saving…" : "Save"}
-                              </button>
-                              <button
-                                onClick={cancelEditTech}
-                                className="flex items-center gap-1.5 px-4 py-2 bg-[#F8F6F2] hover:bg-[#f0ebe3] border border-[#D4AF87]/30 text-[#6B5E50] rounded-lg text-xs font-medium transition-colors">
-                                <X className="w-3.5 h-3.5" /> Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          /* ── Display row ── */
-                          <div className="p-4 sm:p-5 hover:shadow-md transition-all">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-start gap-3 min-w-0">
-                                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 glow-dot ${agent.active_status ? "bg-emerald-500 text-emerald-500" : "bg-red-400 text-red-400"}`} />
-                                <div className="min-w-0">
-                                  <p className="font-semibold text-[#985f99]">{agent.name}</p>
-                                  <p className="text-xs text-[#6B5E50]/60 mt-0.5 truncate">{agent.email}</p>
-                                  <p className="text-xs text-[#6B5E50]/40 mt-0.5">{agent.specialization || "General"}</p>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => startEditTech(agent)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99] hover:bg-[#985f99]/90 rounded-lg text-xs font-medium text-white transition-colors shadow-sm flex-shrink-0">
-                                <Pencil className="w-3.5 h-3.5" /> Edit
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                  {availableTechs.map(tech => (
+                    <div key={tech.id} className="stat-card border border-[#D4AF87]/20 rounded-2xl p-5 hover:shadow-md transition-all shadow-sm">
+                      <div className="flex items-start gap-3 mb-4">
+                        <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 glow-dot ${tech.active_status ? "bg-emerald-500 text-emerald-500" : "bg-red-400 text-red-400"}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-[#985f99] leading-tight">{tech.name}</p>
+                          <p className="text-xs text-[#6B5E50]/60 mt-0.5 truncate">{tech.email}</p>
+                          <p className="text-xs text-[#6B5E50]/40 mt-0.5">{tech.specialization || "General"}</p>
+                        </div>
                       </div>
-                    );
-                  })}
+                      <div className="flex gap-2 flex-wrap">
+                        <button onClick={() => { setEditingTech(tech); setShowEditTechModal(true); }}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-[#985f99]/8 border border-[#985f99]/15 rounded-xl hover:bg-[#985f99]/15 transition-colors text-xs font-medium text-[#985f99]">
+                          <Edit3 className="w-3.5 h-3.5" /> Edit
+                        </button>
+                        <button onClick={() => toggleTechStatus(tech)}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl transition-colors text-xs font-medium border ${tech.active_status ? "bg-red-50 border-red-200/60 text-red-500 hover:bg-red-100" : "bg-emerald-50 border-emerald-200/60 text-emerald-600 hover:bg-emerald-100"}`}>
+                          {tech.active_status ? <><UserX className="w-3.5 h-3.5" /> Deactivate</> : <><Check className="w-3.5 h-3.5" /> Activate</>}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -906,6 +738,45 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               <input type="date" onChange={e => { setSelectedDate(new Date(e.target.value)); setShowDatePicker(false); }}
                 className={S.inputClass} />
               <button onClick={() => setShowDatePicker(false)} className={`mt-4 w-full ${S.btnSecondary}`}>Close</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── EDIT SERVICE MODAL (manager-style) ── */}
+        {showEditServiceModal && (
+          <div className={modalOverlay}>
+            <div className={modalBox}>
+              <h3 className="serif text-2xl text-[#985f99] mb-6">{editingService ? "Edit" : "Add"} Service</h3>
+              <form onSubmit={handleSaveService}>
+                <input value={serviceForm.name} onChange={e => setServiceForm(p => ({ ...p, name: e.target.value }))} required className={inputClass} placeholder="Service name" />
+                <input value={serviceForm.category} onChange={e => setServiceForm(p => ({ ...p, category: e.target.value }))} required className={inputClass} placeholder="Category" />
+                <input type="number" value={serviceForm.duration_minutes} onChange={e => setServiceForm(p => ({ ...p, duration_minutes: e.target.value }))} required className={inputClass} placeholder="Duration (minutes)" />
+                <input type="number" step="0.01" value={serviceForm.price} onChange={e => setServiceForm(p => ({ ...p, price: e.target.value }))} required className={inputClass} placeholder="Price (R)" />
+                <textarea value={serviceForm.description} onChange={e => setServiceForm(p => ({ ...p, description: e.target.value }))} className={`${inputClass} resize-none h-20`} placeholder="Description (optional)" />
+                <div className="flex gap-3 mt-2">
+                  <button type="button" onClick={() => { setShowEditServiceModal(false); setEditingService(null); }} className={btnSecondary}>Cancel</button>
+                  <button type="submit" disabled={savingService} className={`${btnPrimary} disabled:opacity-50`}>{savingService ? "Saving…" : "Save"}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ── EDIT TECH MODAL (manager-style) ── */}
+        {showEditTechModal && (
+          <div className={modalOverlay}>
+            <div className={modalBox}>
+              <h3 className="serif text-2xl text-[#985f99] mb-6">{editingTech ? "Edit" : "Add"} Technician</h3>
+              <form onSubmit={handleSaveTech}>
+                <input name="techName" defaultValue={editingTech?.name || ""} required className={inputClass} placeholder="Full name" />
+                <input name="email" type="email" defaultValue={editingTech?.email || ""} required className={inputClass} placeholder="Email address" />
+                <input name="specialization" defaultValue={editingTech?.specialization || ""} className={inputClass} placeholder="Specialization (optional)" />
+                {!editingTech && <input name="password" type="password" required className={inputClass} placeholder="Password" />}
+                <div className="flex gap-3 mt-2">
+                  <button type="button" onClick={() => { setShowEditTechModal(false); setEditingTech(null); }} className={btnSecondary}>Cancel</button>
+                  <button type="submit" disabled={savingTech} className={`${btnPrimary} disabled:opacity-50`}>{savingTech ? "Saving…" : "Save"}</button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -1044,109 +915,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               <div className="flex gap-3 mt-6">
                 <button onClick={() => setShowClientModal(false)} className={S.btnSecondary}>Cancel</button>
                 <button onClick={addClient} className={S.btnPrimary}>Add Client</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── TECH MODAL ── */}
-        {showTechModal && (
-          <div className={S.modalOverlay}>
-            <div className={`${S.modalBox} max-w-md`}>
-              <h3 className="serif text-2xl text-[#985f99] mb-6">Add Technician</h3>
-              <div className="space-y-3">
-                <div><label className={S.label}>Name</label>
-                  <input type="text" placeholder="Full name" value={newTech.name}
-                    onChange={e => setNewTech(p => ({ ...p, name: e.target.value }))} className={S.inputClass} /></div>
-                <div><label className={S.label}>Email</label>
-                  <input type="email" placeholder="email@blackbird.com" value={newTech.email}
-                    onChange={e => setNewTech(p => ({ ...p, email: e.target.value }))} className={S.inputClass} /></div>
-                <div><label className={S.label}>Password</label>
-                  <input type="password" placeholder="••••••••" value={newTech.password}
-                    onChange={e => setNewTech(p => ({ ...p, password: e.target.value }))} className={S.inputClass} /></div>
-                <div><label className={S.label}>Specialization (optional)</label>
-                  <input type="text" placeholder="e.g. Massage, Nails" value={newTech.specialization}
-                    onChange={e => setNewTech(p => ({ ...p, specialization: e.target.value }))} className={S.inputClass} /></div>
-              </div>
-              <div className="flex gap-3 mt-6">
-                <button onClick={() => { setShowTechModal(false); setNewTech({ name: "", email: "", password: "", specialization: "" }); }} className={S.btnSecondary}>Cancel</button>
-                <button onClick={addTechnician} className={S.btnPrimary}>Add Technician</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── ADD SERVICE MODAL ── */}
-        {showServiceModal && (
-          <div className={S.modalOverlay}>
-            <div className={`${S.modalBox} max-w-md`}>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="serif text-2xl text-[#985f99]">Add Service</h3>
-                <button
-                  onClick={() => { setShowServiceModal(false); setNewService({ name: "", price: "", duration: "", category: "" }); }}
-                  className="p-2 rounded-xl hover:bg-[#F8F6F2] text-[#6B5E50] transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <label className={S.label}>Service Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Swedish Massage"
-                    value={newService.name}
-                    onChange={e => setNewService(p => ({ ...p, name: e.target.value }))}
-                    className={S.inputClass}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={S.label}>Price (R)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={newService.price}
-                      onChange={e => setNewService(p => ({ ...p, price: e.target.value }))}
-                      className={S.inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={S.label}>Duration (min)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      placeholder="60"
-                      value={newService.duration}
-                      onChange={e => setNewService(p => ({ ...p, duration: e.target.value }))}
-                      className={S.inputClass}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className={S.label}>Category (optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Massage, Nails, Facial"
-                    value={newService.category}
-                    onChange={e => setNewService(p => ({ ...p, category: e.target.value }))}
-                    className={S.inputClass}
-                  />
-                </div>
-              </div>
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => { setShowServiceModal(false); setNewService({ name: "", price: "", duration: "", category: "" }); }}
-                  className={S.btnSecondary}>
-                  Cancel
-                </button>
-                <button
-                  onClick={addService}
-                  disabled={addingService}
-                  className={`${S.btnPrimary} disabled:opacity-50`}>
-                  {addingService ? "Adding…" : "Add Service"}
-                </button>
               </div>
             </div>
           </div>
