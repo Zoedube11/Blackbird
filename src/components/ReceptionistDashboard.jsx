@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Plus, CalendarDays, LogOut, Search, UserPlus, Trash2, Undo2,
-  X, Pencil, UserCog, Check, ChevronLeft, ChevronRight, Calendar,
-  Scissors, ChevronDown, Save,
+  X, Edit3, UserCog, Check, ChevronLeft, ChevronRight, Calendar,
+  Scissors, ChevronDown, Info,
 } from "lucide-react";
 
-const formatDateKey = (date) => date.toISOString().split("T")[0];
+const formatDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 const fixDecimalResponse = (text) => {
   try { return JSON.parse(text); }
@@ -17,6 +22,36 @@ const fixDecimalResponse = (text) => {
   }
 };
 
+// ── TIMEZONE HELPER: get SAST hour integer from UTC string ──
+const getSASTHour = (utcString) => {
+  return parseInt(
+    new Date(utcString).toLocaleString("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: "Africa/Johannesburg",
+    }),
+    10
+  );
+};
+
+// ── TIMEZONE HELPER: format UTC string as SAST time display ──
+const toSASTTime = (utcString) => {
+  return new Date(utcString).toLocaleTimeString("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Africa/Johannesburg",
+  });
+};
+
+// ── TIMEZONE HELPER: convert SAST date+time input to UTC ISO string ──
+const sastInputToUTC = (dateStr, timeStr) => {
+  const sastDateTime = new Date(`${dateStr}T${timeStr}:00`);
+  const utcDateTime = new Date(sastDateTime.getTime() - (2 * 60 * 60 * 1000));
+  return utcDateTime.toISOString();
+};
+
+// ─── Shared style tokens ───────────────────────────────────
 const S = {
   card: "bg-white border border-[#D4AF87]/20 rounded-2xl shadow-sm",
   inputClass: "w-full px-4 py-3 rounded-xl bg-[#F8F6F2] border border-[#D4AF87]/30 text-[#2d1f2d] placeholder-[#6B5E50]/40 focus:outline-none focus:border-[#985f99]/40 transition-colors text-sm",
@@ -25,8 +60,55 @@ const S = {
   modalOverlay: "fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[130] p-4",
   modalBox: "bg-white border border-[#D4AF87]/20 rounded-3xl p-8 w-full shadow-2xl max-h-[90vh] overflow-y-auto",
   label: "block text-xs font-semibold tracking-widest uppercase text-[#6B5E50]/50 mb-2",
-  inlineInput: "px-2 py-1 rounded-lg bg-[#F8F6F2] border border-[#985f99]/30 text-[#2d1f2d] focus:outline-none focus:border-[#985f99]/60 transition-colors text-sm w-full",
 };
+
+// ── CLIENT DETAIL MODAL ──────────────────────────────────────────────────────
+function ClientDetailModal({ booking, clients, onClose }) {
+  const client = clients.find(c => c.id === booking.clientId);
+  const rows = [
+    { label: "Name",  value: booking.client },
+    { label: "Phone", value: client?.phone || "—" },
+    { label: "Email", value: client?.email || "—" },
+  ];
+  return (
+    <div className={S.modalOverlay}>
+      <div className="bg-white border border-[#D4AF87]/20 rounded-3xl p-8 max-w-sm w-full shadow-2xl">
+        {/* header */}
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="serif text-2xl text-[#985f99]">Client Details</h3>
+          <button onClick={onClose}
+            className="p-2 rounded-xl hover:bg-[#F8F6F2] text-[#6B5E50] transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* avatar initial */}
+        <div className="w-14 h-14 rounded-full bg-[#985f99]/10 border border-[#985f99]/20 flex items-center justify-center mb-6 mx-auto">
+          <span className="serif text-2xl text-[#985f99]">
+            {booking.client.charAt(0).toUpperCase()}
+          </span>
+        </div>
+
+        {/* detail rows */}
+        <div className="space-y-1">
+          {rows.map(({ label, value }) => (
+            <div key={label}
+              className="flex justify-between items-start py-3 border-b border-[#D4AF87]/10 last:border-0">
+              <span className="text-xs font-semibold tracking-widest uppercase text-[#6B5E50]/50 pt-0.5">
+                {label}
+              </span>
+              <span className="text-sm font-medium text-[#985f99] text-right max-w-[60%] break-all">
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={onClose} className={`mt-8 w-full ${S.btnPrimary}`}>Close</button>
+      </div>
+    </div>
+  );
+}
 
 export default function ReceptionistDashboard({ user, onLogout }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -41,14 +123,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
   const [viewMode, setViewMode] = useState("schedule");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // Edit states
-  const [editingServiceId, setEditingServiceId] = useState(null);
-  const [editingServiceData, setEditingServiceData] = useState({});
-  const [editingTechId, setEditingTechId] = useState(null);
-  const [editingTechData, setEditingTechData] = useState({});
-  const [savingService, setSavingService] = useState(false);
-  const [savingTech, setSavingTech] = useState(false);
-
   // Modals
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showClientModal, setShowClientModal] = useState(false);
@@ -60,9 +134,8 @@ export default function ReceptionistDashboard({ user, onLogout }) {
   const [deletedBooking, setDeletedBooking] = useState(null);
   const [undoTimeout, setUndoTimeout] = useState(null);
 
-  // New service form state
-  const [newService, setNewService] = useState({ name: "", price: "", duration: "", category: "" });
-  const [addingService, setAddingService] = useState(false);
+  // ── Client detail modal state ──
+  const [clientDetailBooking, setClientDetailBooking] = useState(null);
 
   // Form states
   const [clientSearch, setClientSearch] = useState("");
@@ -106,13 +179,16 @@ export default function ReceptionistDashboard({ user, onLogout }) {
           const data = fixDecimalResponse(text);
           if (Array.isArray(data)) {
             const grouped = data.reduce((acc, b) => {
-              const dateKey = new Date(b.start_time).toISOString().split("T")[0];
-              if (!acc[dateKey]) acc[dateKey] = [];
+              const sastDateKey = new Date(b.start_time).toLocaleDateString("en-CA", {
+                timeZone: "Africa/Johannesburg",
+              });
+              if (!acc[sastDateKey]) acc[sastDateKey] = [];
               const price = typeof b.total_price === "string" ? parseFloat(b.total_price) : b.total_price || 0;
-              acc[dateKey].push({
-                id: b.id, start_time: b.start_time,
-                time: new Date(b.start_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                hour: new Date(b.start_time).getHours(),
+              acc[sastDateKey].push({
+                id: b.id,
+                start_time: b.start_time,
+                time: toSASTTime(b.start_time),
+                hour: getSASTHour(b.start_time),
                 client: b.client.name, clientId: b.client.id,
                 services: b.services.map(s => s.name),
                 technician: b.agent?.name || "Auto-Assigned",
@@ -186,26 +262,17 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     setClientSearch("");
   };
 
-  // ── Service editing ──────────────────────────────────────────────────────
-  const startEditService = (service) => {
-    setEditingServiceId(service.id);
-    setEditingServiceData({ name: service.name, price: service.price, duration: service.duration, category: service.category });
+  const toggleService = (service) => {
+    setBookingForm(p => ({
+      ...p,
+      selectedServices: p.selectedServices.some(s => s.id === service.id)
+        ? p.selectedServices.filter(s => s.id !== service.id)
+        : [...p.selectedServices, service],
+    }));
   };
 
-  const cancelEditService = () => {
-    setEditingServiceId(null);
-    setEditingServiceData({});
-  };
-
-  const saveService = async (serviceId) => {
-    const { name, price, duration, category } = editingServiceData;
-    if (!name?.trim()) return showToast("error", "Service name is required");
-    const parsedPrice = parseFloat(price);
-    const parsedDuration = parseInt(duration, 10);
-    if (isNaN(parsedPrice) || parsedPrice < 0) return showToast("error", "Invalid price");
-    if (isNaN(parsedDuration) || parsedDuration < 1) return showToast("error", "Invalid duration");
-
-    setSavingService(true);
+  const addClient = async () => {
+    if (!newClient.name.trim() || !newClient.phone.trim()) return showToast("error", "Name and phone required");
     const token = localStorage.getItem("access_token");
     try {
       const res = await fetch(`/proxy-api/services/${serviceId}`, {
@@ -247,12 +314,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
       const res = await fetch("/proxy-api/services/", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          name: name.trim(),
-          price: parsedPrice,
-          duration_minutes: parsedDuration,
-          category: category.trim() || "General",
-        }),
+        body: JSON.stringify({ name: newClient.name.trim(), phone: newClient.phone.trim(), email: newClient.email.trim() || null }),
       });
       if (!res.ok) {
         const e = await res.json();
@@ -369,10 +431,12 @@ export default function ReceptionistDashboard({ user, onLogout }) {
       return showToast("error", "Please select client, service(s), and time");
     }
     const token = localStorage.getItem("access_token");
-    const startDateTime = new Date(`${bookingForm.date}T${bookingForm.time}:00`);
+
+    const utcStartTime = sastInputToUTC(bookingForm.date, bookingForm.time);
+
     const payload = {
       client_id: bookingForm.clientId,
-      start_time: startDateTime.toISOString(),
+      start_time: utcStartTime,
       services: bookingForm.selectedServices.map(s => ({ service_id: s.id })),
       agent_id: (() => {
         if (!bookingForm.technician || bookingForm.technician === "auto" || bookingForm.technician === "") return null;
@@ -398,13 +462,18 @@ export default function ReceptionistDashboard({ user, onLogout }) {
       const text = await res.text();
       const data = fixDecimalResponse(text);
       if (!data || !data.id) { showToast("error", "Invalid response"); return; }
-      const formattedStart = new Date(data.start_time);
+
+      const clientRecord = clients.find(c => c.id === (data.client?.id || bookingForm.clientId));
+
       const formatted = {
-        id: data.id, start_time: data.start_time,
-        time: formattedStart.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        hour: formattedStart.getHours(),
+        id: data.id,
+        start_time: data.start_time,
+        time: toSASTTime(data.start_time),
+        hour: getSASTHour(data.start_time),
         client: data.client?.name || bookingForm.clientName,
         clientId: data.client?.id || bookingForm.clientId,
+        clientPhone: clientRecord?.phone || data.client?.phone || null,
+        clientEmail: clientRecord?.email || data.client?.email || null,
         services: data.services ? data.services.map(s => s.name) : bookingForm.selectedServices.map(s => s.name),
         technician: data.agent?.name || "Auto-Assigned",
         technicianId: data.agent?.id,
@@ -412,9 +481,13 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         totalDuration: data.services ? data.services.reduce((sum, s) => sum + (s.duration_minutes || 0), 0) : totalDuration,
         status: data.status || "confirmed",
       };
+
+      const sastDateKey = new Date(data.start_time).toLocaleDateString("en-CA", {
+        timeZone: "Africa/Johannesburg",
+      });
       setBookings(prev => {
-        const day = prev[bookingForm.date] || [];
-        return { ...prev, [bookingForm.date]: [...day, formatted].sort((a, b) => a.time.localeCompare(b.time)) };
+        const day = prev[sastDateKey] || [];
+        return { ...prev, [sastDateKey]: [...day, formatted].sort((a, b) => a.time.localeCompare(b.time)) };
       });
       setConfirmedBooking({ ...formatted, autoAssigned: !data.agent?.id });
       setShowConfirmation(true);
@@ -471,6 +544,31 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     setShowBookingModal(true);
   };
 
+  // ── Reusable booking action buttons: Info · Edit · Cancel ────────────────────
+  const BookingActions = ({ booking }) => (
+    <div className="flex gap-2">
+      <button
+        onClick={() => setClientDetailBooking(booking)}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#D4AF87]/10 border border-[#D4AF87]/30 rounded-lg text-xs font-medium text-[#6B5E50] hover:bg-[#D4AF87]/20 transition-colors"
+        title="Client details"
+      >
+        <Info className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={() => openEdit(booking)}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99]/10 border border-[#985f99]/20 rounded-lg text-xs font-medium text-[#985f99] hover:bg-[#985f99]/20 transition-colors"
+      >
+        <Edit3 className="w-3.5 h-3.5" /> Edit
+      </button>
+      <button
+        onClick={() => deleteBooking(booking)}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200/60 rounded-lg text-xs font-medium text-red-500 hover:bg-red-100 transition-colors"
+      >
+        <Trash2 className="w-3.5 h-3.5" /> Cancel
+      </button>
+    </div>
+  );
+
   if (loading) return (
     <div className="min-h-screen bg-[#F8F6F2] flex items-center justify-center">
       <p className="text-xl text-[#985f99]/50">Loading...</p>
@@ -493,12 +591,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         .glow-dot { box-shadow: 0 0 8px currentColor; }
         * { font-family: 'DM Sans', sans-serif; }
         .serif { font-family: 'DM Serif Display', serif; }
-        .edit-row input, .edit-row select { font-size: 13px; }
-        .toggle-pill { position: relative; display: inline-flex; align-items: center; width: 40px; height: 22px; border-radius: 99px; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
-        .toggle-pill .knob { position: absolute; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: white; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
-        .toggle-pill.on { background: #985f99; }
-        .toggle-pill.off { background: #D4AF87; }
-        .toggle-pill.on .knob { transform: translateX(18px); }
       `}</style>
 
       <div className="min-h-screen bg-[#F8F6F2] text-[#2d1f2d]">
@@ -507,10 +599,12 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         <header className="fixed top-0 left-0 right-0 z-[100]">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-3">
             <div className="flex items-center justify-between bg-white/90 backdrop-blur-2xl border border-[#D4AF87]/20 rounded-2xl px-4 sm:px-6 py-3 sm:py-4 shadow-lg">
+
               <div className="flex items-center gap-2 sm:gap-3">
                 <h1 className="serif text-xl sm:text-2xl text-[#985f99] tracking-tight">blackbird</h1>
                 <span className="hidden sm:block text-[10px] tracking-[4px] text-[#6B5E50] uppercase font-medium mt-0.5">Spa</span>
               </div>
+
               <nav className="hidden md:flex items-center gap-1">
                 {navItems.map(({ mode, label }) => (
                   <button key={mode} onClick={() => setViewMode(mode)}
@@ -519,13 +613,16 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                   </button>
                 ))}
               </nav>
+
               <div className="flex items-center gap-2 sm:gap-3">
                 <span className="text-sm text-[#6B5E50]/60 hidden lg:block">{user?.name}</span>
+
                 <button onClick={() => setShowBookingModal(true)}
                   className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-[#985f99] text-white rounded-xl text-sm font-medium hover:bg-[#985f99]/90 transition-all shadow-sm">
                   <Plus className="w-4 h-4" />
                   <span className="hidden sm:inline">New Booking</span>
                 </button>
+
                 <div className="relative md:hidden">
                   <button onClick={() => setIsMenuOpen(!isMenuOpen)}
                     className="flex items-center gap-1.5 px-3 py-2 bg-[#985f99]/5 border border-[#D4AF87]/30 rounded-xl text-[#985f99] text-sm hover:bg-[#985f99]/10 transition-colors">
@@ -542,6 +639,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                     </div>
                   )}
                 </div>
+
                 <button onClick={onLogout}
                   className="p-2 rounded-xl bg-[#985f99]/5 hover:bg-red-50 border border-[#D4AF87]/30 text-[#6B5E50] hover:text-red-500 transition-all">
                   <LogOut className="w-4 h-4" />
@@ -551,7 +649,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
           </div>
         </header>
 
-        {/* ── MAIN ── */}
+        {/* ── MAIN CONTENT ── */}
         <main className="pt-24 sm:pt-28 px-4 sm:px-6 pb-12">
           <div className="max-w-7xl mx-auto">
 
@@ -561,15 +659,19 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               </p>
               <div className="flex items-center justify-between gap-4">
                 <h2 className="serif text-3xl sm:text-4xl text-[#985f99]">{viewLabel}</h2>
+
                 {(viewMode === "schedule" || viewMode === "monthly") && (
                   <div className="flex items-center gap-2">
-                    <button onClick={() => changeDate(-1)} className="p-2 bg-white border border-[#D4AF87]/20 rounded-xl hover:bg-[#985f99]/5 shadow-sm transition-colors">
+                    <button onClick={() => changeDate(-1)}
+                      className="p-2 bg-white border border-[#D4AF87]/20 rounded-xl hover:bg-[#985f99]/5 shadow-sm transition-colors">
                       <ChevronLeft className="w-5 h-5 text-[#985f99]" />
                     </button>
-                    <button onClick={() => setShowDatePicker(true)} className="p-2 bg-white border border-[#D4AF87]/20 rounded-xl hover:bg-[#985f99]/5 shadow-sm transition-colors">
+                    <button onClick={() => setShowDatePicker(true)}
+                      className="p-2 bg-white border border-[#D4AF87]/20 rounded-xl hover:bg-[#985f99]/5 shadow-sm transition-colors">
                       <Calendar className="w-5 h-5 text-[#985f99]" />
                     </button>
-                    <button onClick={() => changeDate(1)} className="p-2 bg-white border border-[#D4AF87]/20 rounded-xl hover:bg-[#985f99]/5 shadow-sm transition-colors">
+                    <button onClick={() => changeDate(1)}
+                      className="p-2 bg-white border border-[#D4AF87]/20 rounded-xl hover:bg-[#985f99]/5 shadow-sm transition-colors">
                       <ChevronRight className="w-5 h-5 text-[#985f99]" />
                     </button>
                   </div>
@@ -587,6 +689,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                     {availableTechs.map(t => <option key={t.id} value={t.name}>{t.name} {t.active_status ? "●" : "○"}</option>)}
                   </select>
                 </div>
+
                 <div className="stat-card border border-[#D4AF87]/20 rounded-2xl shadow-sm overflow-hidden">
                   {selectedBookings.filter(b => b.status !== "cancelled").length === 0 ? (
                     <div className="p-16 text-center text-[#6B5E50]/40 text-sm">A quiet day in the sanctuary</div>
@@ -615,16 +718,8 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                                     </div>
                                     <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-3 flex-shrink-0">
                                       <p className="font-semibold text-[#D4AF87]">R{booking.totalPrice.toFixed(2)}</p>
-                                      <div className="flex gap-2">
-                                        <button onClick={() => openEdit(booking)}
-                                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99]/10 border border-[#985f99]/20 rounded-lg text-xs font-medium text-[#985f99] hover:bg-[#985f99]/20 transition-colors">
-                                          <Pencil className="w-3.5 h-3.5" /> Edit
-                                        </button>
-                                        <button onClick={() => deleteBooking(booking)}
-                                          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200/60 rounded-lg text-xs font-medium text-red-500 hover:bg-red-100 transition-colors">
-                                          <Trash2 className="w-3.5 h-3.5" /> Cancel
-                                        </button>
-                                      </div>
+                                      {/* ── Info · Edit · Cancel ── */}
+                                      <BookingActions booking={booking} />
                                     </div>
                                   </div>
                                 </div>
@@ -657,14 +752,42 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                       const dateKey = formatDateKey(new Date(year, month, d));
                       const dayBookings = (bookings[dateKey] || []).filter(b => b.status !== "cancelled" && (!selectedTech || b.technician === selectedTech));
                       cells.push(
-                        <div key={d} onClick={() => { setSelectedDate(new Date(year, month, d)); setViewMode("schedule"); }}
-                          className={`p-2 rounded-xl cursor-pointer transition-all min-h-[60px] sm:min-h-[80px] ${dayBookings.length > 0 ? "bg-[#985f99]/10 border border-[#985f99]/20 hover:bg-[#985f99]/20" : "bg-[#F8F6F2] border border-[#D4AF87]/10 hover:bg-[#985f99]/5"}`}>
-                          <p className={`text-sm font-medium ${dayBookings.length > 0 ? "text-[#985f99]" : "text-[#6B5E50]/50"}`}>{d}</p>
-                          <div className="mt-1 space-y-0.5 overflow-hidden">
+                        <div key={d}
+                          className={`p-2 rounded-xl transition-all min-h-[60px] sm:min-h-[80px] ${dayBookings.length > 0 ? "bg-[#985f99]/10 border border-[#985f99]/20 hover:bg-[#985f99]/15" : "bg-[#F8F6F2] border border-[#D4AF87]/10 hover:bg-[#985f99]/5"}`}>
+                          <p
+                            className={`text-sm font-medium cursor-pointer ${dayBookings.length > 0 ? "text-[#985f99]" : "text-[#6B5E50]/50"}`}
+                            onClick={() => { setSelectedDate(new Date(year, month, d)); setViewMode("schedule"); }}
+                          >
+                            {d}
+                          </p>
+                          <div className="mt-1 space-y-1 overflow-hidden">
                             {dayBookings.slice(0, 2).map(b => (
-                              <div key={b.id} className="text-[10px] text-[#985f99]/70 truncate">{b.time} {b.client}</div>
+                              <div key={b.id} className="flex items-center justify-between gap-1 group">
+                                {/* clicking the text navigates to day view */}
+                                <span
+                                  className="text-[10px] text-[#985f99]/70 truncate cursor-pointer hover:text-[#985f99]"
+                                  onClick={() => { setSelectedDate(new Date(year, month, d)); setViewMode("schedule"); }}
+                                >
+                                  {b.time} {b.client}
+                                </span>
+                                {/* info icon — visible on hover */}
+                                <button
+                                  onClick={() => setClientDetailBooking(b)}
+                                  className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-0.5 rounded text-[#6B5E50]/50 hover:text-[#985f99] transition-all"
+                                  title="Client details"
+                                >
+                                  <Info className="w-3 h-3" />
+                                </button>
+                              </div>
                             ))}
-                            {dayBookings.length > 2 && <div className="text-[10px] text-[#6B5E50]/40">+{dayBookings.length - 2} more</div>}
+                            {dayBookings.length > 2 && (
+                              <div
+                                className="text-[10px] text-[#6B5E50]/40 cursor-pointer hover:text-[#985f99]"
+                                onClick={() => { setSelectedDate(new Date(year, month, d)); setViewMode("schedule"); }}
+                              >
+                                +{dayBookings.length - 2} more
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -678,108 +801,22 @@ export default function ReceptionistDashboard({ user, onLogout }) {
             {/* ─ SERVICES ─ */}
             {viewMode === "services" && (
               <div className="space-y-6">
-                {/* Add Service button — mirrors the Technicians pattern */}
-                <div className="flex justify-end">
-                  <button onClick={() => setShowServiceModal(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-sm font-medium shadow-sm transition-all">
-                    <Plus className="w-4 h-4" /> Add Service
-                  </button>
-                </div>
-
                 {Object.entries(groupedServices).map(([category, items]) => (
                   <div key={category}>
                     <p className="text-xs tracking-widest uppercase text-[#6B5E50]/40 mb-3">{category}</p>
                     <div className="space-y-2">
-                      {items.map(service => {
-                        const isEditing = editingServiceId === service.id;
-                        return (
-                          <div key={service.id} className="stat-card border border-[#D4AF87]/20 rounded-xl shadow-sm overflow-hidden">
-                            {isEditing ? (
-                              /* ── Edit row ── */
-                              <div className="edit-row p-4 sm:p-5 space-y-3">
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                  <div>
-                                    <label className={S.label}>Name</label>
-                                    <input
-                                      type="text"
-                                      value={editingServiceData.name}
-                                      onChange={e => setEditingServiceData(p => ({ ...p, name: e.target.value }))}
-                                      className={S.inlineInput}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className={S.label}>Price (R)</label>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="0.01"
-                                      value={editingServiceData.price}
-                                      onChange={e => setEditingServiceData(p => ({ ...p, price: e.target.value }))}
-                                      className={S.inlineInput}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className={S.label}>Duration (min)</label>
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      value={editingServiceData.duration}
-                                      onChange={e => setEditingServiceData(p => ({ ...p, duration: e.target.value }))}
-                                      className={S.inlineInput}
-                                    />
-                                  </div>
-                                </div>
-                                <div>
-                                  <label className={S.label}>Category</label>
-                                  <input
-                                    type="text"
-                                    value={editingServiceData.category}
-                                    onChange={e => setEditingServiceData(p => ({ ...p, category: e.target.value }))}
-                                    className={S.inlineInput}
-                                    placeholder="e.g. Nails, Massage, Facial"
-                                  />
-                                </div>
-                                <div className="flex gap-2 pt-1">
-                                  <button
-                                    onClick={() => saveService(service.id)}
-                                    disabled={savingService}
-                                    className="flex items-center gap-1.5 px-4 py-2 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                                    <Save className="w-3.5 h-3.5" />
-                                    {savingService ? "Saving…" : "Save"}
-                                  </button>
-                                  <button
-                                    onClick={cancelEditService}
-                                    className="flex items-center gap-1.5 px-4 py-2 bg-[#F8F6F2] hover:bg-[#f0ebe3] border border-[#D4AF87]/30 text-[#6B5E50] rounded-lg text-xs font-medium transition-colors">
-                                    <X className="w-3.5 h-3.5" /> Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              /* ── Display row ── */
-                              <div className="p-4 sm:p-5 flex items-center justify-between">
-                                <div>
-                                  <p className="font-medium text-[#985f99]">{service.name}</p>
-                                  <p className="text-xs text-[#6B5E50]/50 mt-0.5">{service.duration} min</p>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <p className="font-semibold text-[#D4AF87]">R{service.price.toFixed(2)}</p>
-                                  <button
-                                    onClick={() => startEditService(service)}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99] hover:bg-[#985f99]/90 rounded-lg text-xs font-medium text-white transition-colors shadow-sm">
-                                    <Pencil className="w-3.5 h-3.5" /> Edit
-                                  </button>
-                                </div>
-                              </div>
-                            )}
+                      {items.map(service => (
+                        <div key={service.id} className="stat-card border border-[#D4AF87]/20 rounded-xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
+                          <div>
+                            <p className="font-medium text-[#985f99]">{service.name}</p>
+                            <p className="text-xs text-[#6B5E50]/50 mt-0.5">{service.duration} min</p>
                           </div>
-                        );
-                      })}
+                          <p className="font-semibold text-[#D4AF87]">R{service.price.toFixed(2)}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
-                {services.length === 0 && (
-                  <div className="text-center py-16 text-[#6B5E50]/40 text-sm">No services found</div>
-                )}
               </div>
             )}
 
@@ -793,86 +830,18 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                   </button>
                 </div>
                 <div className="space-y-3">
-                  {availableTechs.map(agent => {
-                    const isEditing = editingTechId === agent.id;
-                    return (
-                      <div key={agent.id} className="stat-card border border-[#D4AF87]/20 rounded-xl shadow-sm overflow-hidden">
-                        {isEditing ? (
-                          /* ── Edit row ── */
-                          <div className="edit-row p-4 sm:p-5 space-y-3">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div>
-                                <label className={S.label}>Name</label>
-                                <input
-                                  type="text"
-                                  value={editingTechData.name}
-                                  onChange={e => setEditingTechData(p => ({ ...p, name: e.target.value }))}
-                                  className={S.inlineInput}
-                                />
-                              </div>
-                              <div>
-                                <label className={S.label}>Specialization</label>
-                                <input
-                                  type="text"
-                                  value={editingTechData.specialization}
-                                  onChange={e => setEditingTechData(p => ({ ...p, specialization: e.target.value }))}
-                                  className={S.inlineInput}
-                                  placeholder="e.g. Massage, Nails"
-                                />
-                              </div>
-                            </div>
-                            {/* Active status toggle */}
-                            <div className="flex items-center gap-3">
-                              <span className={S.label} style={{ marginBottom: 0 }}>Active</span>
-                              <button
-                                type="button"
-                                onClick={() => setEditingTechData(p => ({ ...p, active_status: !p.active_status }))}
-                                className={`toggle-pill ${editingTechData.active_status ? "on" : "off"}`}
-                                aria-label="Toggle active status">
-                                <span className="knob" />
-                              </button>
-                              <span className="text-xs text-[#6B5E50]/60">
-                                {editingTechData.active_status ? "Available for bookings" : "Not available"}
-                              </span>
-                            </div>
-                            <div className="flex gap-2 pt-1">
-                              <button
-                                onClick={() => saveTech(agent.id)}
-                                disabled={savingTech}
-                                className="flex items-center gap-1.5 px-4 py-2 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                                <Save className="w-3.5 h-3.5" />
-                                {savingTech ? "Saving…" : "Save"}
-                              </button>
-                              <button
-                                onClick={cancelEditTech}
-                                className="flex items-center gap-1.5 px-4 py-2 bg-[#F8F6F2] hover:bg-[#f0ebe3] border border-[#D4AF87]/30 text-[#6B5E50] rounded-lg text-xs font-medium transition-colors">
-                                <X className="w-3.5 h-3.5" /> Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          /* ── Display row ── */
-                          <div className="p-4 sm:p-5 hover:shadow-md transition-all">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-start gap-3 min-w-0">
-                                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 glow-dot ${agent.active_status ? "bg-emerald-500 text-emerald-500" : "bg-red-400 text-red-400"}`} />
-                                <div className="min-w-0">
-                                  <p className="font-semibold text-[#985f99]">{agent.name}</p>
-                                  <p className="text-xs text-[#6B5E50]/60 mt-0.5 truncate">{agent.email}</p>
-                                  <p className="text-xs text-[#6B5E50]/40 mt-0.5">{agent.specialization || "General"}</p>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => startEditTech(agent)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99] hover:bg-[#985f99]/90 rounded-lg text-xs font-medium text-white transition-colors shadow-sm flex-shrink-0">
-                                <Pencil className="w-3.5 h-3.5" /> Edit
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                  {availableTechs.map(agent => (
+                    <div key={agent.id} className="stat-card border border-[#D4AF87]/20 rounded-xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all">
+                      <div className="flex items-start gap-3">
+                        <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 glow-dot ${agent.active_status ? "bg-emerald-500 text-emerald-500" : "bg-red-400 text-red-400"}`} />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[#985f99]">{agent.name}</p>
+                          <p className="text-xs text-[#6B5E50]/60 mt-0.5 truncate">{agent.email}</p>
+                          <p className="text-xs text-[#6B5E50]/40 mt-0.5">{agent.specialization || "General"}</p>
+                        </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -903,7 +872,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
           <div className={S.modalOverlay}>
             <div className="bg-white border border-[#D4AF87]/20 rounded-3xl p-8 max-w-sm w-full shadow-2xl">
               <h3 className="serif text-2xl text-[#985f99] mb-6">Select Date</h3>
-              <input type="date" onChange={e => { setSelectedDate(new Date(e.target.value)); setShowDatePicker(false); }}
+              <input type="date" onChange={e => { setSelectedDate(new Date(e.target.value + "T12:00:00")); setShowDatePicker(false); }}
                 className={S.inputClass} />
               <button onClick={() => setShowDatePicker(false)} className={`mt-4 w-full ${S.btnSecondary}`}>Close</button>
             </div>
@@ -922,6 +891,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                 </button>
               </div>
               <form onSubmit={confirmBooking} className="space-y-5">
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className={S.label}>Date</label>
@@ -966,14 +936,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                           {items.map(service => {
                             const isSelected = bookingForm.selectedServices.some(s => s.id === service.id);
                             return (
-                              <label key={service.id} onClick={() => {
-                                setBookingForm(p => ({
-                                  ...p,
-                                  selectedServices: p.selectedServices.some(s => s.id === service.id)
-                                    ? p.selectedServices.filter(s => s.id !== service.id)
-                                    : [...p.selectedServices, service],
-                                }));
-                              }}
+                              <label key={service.id} onClick={() => toggleService(service)}
                                 className={`flex items-center justify-between p-3 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? "border-[#985f99] bg-[#985f99]/10" : "border-[#D4AF87]/20 hover:border-[#D4AF87]/40 bg-white"}`}>
                                 <div>
                                   <p className={`text-sm font-medium ${isSelected ? "text-[#985f99]" : "text-[#2d1f2d]"}`}>{service.name}</p>
@@ -1009,7 +972,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
                     </select>
                   </div>
                   <div>
-                    <label className={S.label}>Time</label>
+                    <label className={S.label}>Time (SAST)</label>
                     <input type="time" required value={bookingForm.time}
                       onChange={e => setBookingForm(p => ({ ...p, time: e.target.value }))}
                       className={S.inputClass} />
@@ -1076,82 +1039,6 @@ export default function ReceptionistDashboard({ user, onLogout }) {
           </div>
         )}
 
-        {/* ── ADD SERVICE MODAL ── */}
-        {showServiceModal && (
-          <div className={S.modalOverlay}>
-            <div className={`${S.modalBox} max-w-md`}>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="serif text-2xl text-[#985f99]">Add Service</h3>
-                <button
-                  onClick={() => { setShowServiceModal(false); setNewService({ name: "", price: "", duration: "", category: "" }); }}
-                  className="p-2 rounded-xl hover:bg-[#F8F6F2] text-[#6B5E50] transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <label className={S.label}>Service Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Swedish Massage"
-                    value={newService.name}
-                    onChange={e => setNewService(p => ({ ...p, name: e.target.value }))}
-                    className={S.inputClass}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={S.label}>Price (R)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={newService.price}
-                      onChange={e => setNewService(p => ({ ...p, price: e.target.value }))}
-                      className={S.inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={S.label}>Duration (min)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      placeholder="60"
-                      value={newService.duration}
-                      onChange={e => setNewService(p => ({ ...p, duration: e.target.value }))}
-                      className={S.inputClass}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className={S.label}>Category (optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Massage, Nails, Facial"
-                    value={newService.category}
-                    onChange={e => setNewService(p => ({ ...p, category: e.target.value }))}
-                    className={S.inputClass}
-                  />
-                </div>
-              </div>
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => { setShowServiceModal(false); setNewService({ name: "", price: "", duration: "", category: "" }); }}
-                  className={S.btnSecondary}>
-                  Cancel
-                </button>
-                <button
-                  onClick={addService}
-                  disabled={addingService}
-                  className={`${S.btnPrimary} disabled:opacity-50`}>
-                  {addingService ? "Adding…" : "Add Service"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ── CONFIRMATION MODAL ── */}
         {showConfirmation && confirmedBooking && (
           <div className={S.modalOverlay}>
@@ -1163,6 +1050,8 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               <div className="space-y-3 text-left">
                 {[
                   { label: "Client", value: confirmedBooking.client },
+                  ...(confirmedBooking.clientPhone ? [{ label: "Phone", value: confirmedBooking.clientPhone }] : []),
+                  ...(confirmedBooking.clientEmail ? [{ label: "Email", value: confirmedBooking.clientEmail }] : []),
                   { label: "Services", value: confirmedBooking.services.join(" · ") },
                   { label: "Time", value: confirmedBooking.time },
                   { label: "Technician", value: confirmedBooking.technician },
@@ -1180,6 +1069,15 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               <button onClick={() => setShowConfirmation(false)} className={`mt-8 w-full ${S.btnPrimary}`}>Done</button>
             </div>
           </div>
+        )}
+
+        {/* ── CLIENT DETAIL MODAL ── */}
+        {clientDetailBooking && (
+          <ClientDetailModal
+            booking={clientDetailBooking}
+            clients={clients}
+            onClose={() => setClientDetailBooking(null)}
+          />
         )}
 
       </div>
