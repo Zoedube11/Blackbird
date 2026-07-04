@@ -127,6 +127,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showClientModal, setShowClientModal] = useState(false);
   const [showTechModal, setShowTechModal] = useState(false);
+  const [showServiceModal, setShowServiceModal] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [confirmedBooking, setConfirmedBooking] = useState(null);
@@ -152,6 +153,8 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     { mode: "services", label: "Services", icon: Scissors },
     { mode: "agents", label: "Technicians", icon: UserCog },
   ];
+
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -243,6 +246,11 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     setTimeout(() => setToast(null), 4000);
   };
 
+  const formatCurrency = (value) => {
+    const num = parseFloat(value);
+    return isNaN(num) ? "0.00" : num.toFixed(2);
+  };
+
   const changeDate = (delta) => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + delta);
@@ -270,6 +278,21 @@ export default function ReceptionistDashboard({ user, onLogout }) {
     }));
   };
 
+
+
+  // ── Toggle tech active status ────────────────────────────────────────────
+  const toggleTechStatus = async (tech) => {
+    const token = localStorage.getItem("access_token");
+    try {
+      const res = await fetch(`/proxy-api/agents/${tech.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ active_status: !tech.active_status }) });
+      if (!res.ok) { showToast("error", "Failed to update status"); return; }
+      const updated = await res.json();
+      setAvailableTechs(prev => prev.map(t => t.id === updated.id ? updated : t));
+      showToast("success", `Technician ${updated.active_status ? "activated" : "deactivated"}`);
+    } catch { showToast("error", "Failed to update status"); }
+  };
+
+  // ── Existing booking handlers ────────────────────────────────────────────
   const addClient = async () => {
     if (!newClient.name.trim() || !newClient.phone.trim()) return showToast("error", "Name and phone required");
     const token = localStorage.getItem("access_token");
@@ -427,8 +450,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
       clientId: booking.clientId, clientName: booking.client,
       selectedServices: selected,
       technician: booking.technician === "Auto-Assigned" ? "auto" : booking.technician,
-      time: booking.time.slice(0, 5),
-      date: selectedDateKey,
+      time: booking.time.slice(0, 5), date: selectedDateKey,
     });
     setShowBookingModal(true);
   };
@@ -470,6 +492,13 @@ export default function ReceptionistDashboard({ user, onLogout }) {
   );
 
   const viewLabel = navItems.find(n => n.mode === viewMode)?.label;
+
+  // Modal style constants (matching manager)
+  const modalOverlay = "fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[130] p-4";
+  const modalBox = "bg-white border border-[#D4AF87]/20 rounded-3xl p-8 max-w-md w-full shadow-2xl";
+  const inputClass = "w-full mb-4 px-4 py-3 rounded-xl bg-[#F8F6F2] border border-[#D4AF87]/30 text-[#2d1f2d] placeholder-[#6B5E50]/40 focus:outline-none focus:border-[#985f99]/40 transition-colors text-sm";
+  const btnPrimary = "flex-1 py-3 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl font-medium transition-colors text-sm";
+  const btnSecondary = "flex-1 py-3 bg-[#F8F6F2] hover:bg-[#f0ebe3] border border-[#D4AF87]/30 text-[#6B5E50] rounded-xl font-medium transition-colors text-sm";
 
   return (
     <>
@@ -542,7 +571,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         <main className="pt-24 sm:pt-28 px-4 sm:px-6 pb-12">
           <div className="max-w-7xl mx-auto">
 
-            <div className="mb-8">
+            <div className="mb-10">
               <p className="text-xs tracking-[4px] uppercase text-[#6B5E50]/60 mb-2">
                 {selectedDate.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </p>
@@ -687,7 +716,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               </div>
             )}
 
-            {/* ─ SERVICES ─ */}
+            {/* ─ SERVICES — matches manager exactly ─ */}
             {viewMode === "services" && (
               <div className="space-y-6">
                 {Object.entries(groupedServices).map(([category, items]) => (
@@ -709,10 +738,10 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               </div>
             )}
 
-            {/* ─ AGENTS ─ */}
+            {/* ─ TECHNICIANS — matches manager exactly ─ */}
             {viewMode === "agents" && (
               <div>
-                <div className="flex justify-end mb-5">
+                <div className="flex justify-end mb-6">
                   <button onClick={() => setShowTechModal(true)}
                     className="flex items-center gap-2 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-sm font-medium shadow-sm transition-all">
                     <Plus className="w-4 h-4" /> Add Technician
@@ -767,6 +796,8 @@ export default function ReceptionistDashboard({ user, onLogout }) {
             </div>
           </div>
         )}
+
+
 
         {/* ── BOOKING MODAL ── */}
         {showBookingModal && (
