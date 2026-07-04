@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Plus, CalendarDays, LogOut, Search, UserPlus, Trash2, Undo2,
-  X, Edit3, UserCog, Check, ChevronLeft, ChevronRight, Calendar,
-  Scissors, ChevronDown, Info,
+  X, Pencil, UserCog, Check, ChevronLeft, ChevronRight, Calendar,
+  Scissors, ChevronDown, Info, Save, Clock,
 } from "lucide-react";
 
 const formatDateKey = (date) => {
@@ -60,6 +60,7 @@ const S = {
   modalOverlay: "fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[130] p-4",
   modalBox: "bg-white border border-[#D4AF87]/20 rounded-3xl p-8 w-full shadow-2xl max-h-[90vh] overflow-y-auto",
   label: "block text-xs font-semibold tracking-widest uppercase text-[#6B5E50]/50 mb-2",
+  inlineInput: "w-full px-3 py-2.5 rounded-xl bg-[#F8F6F2] border border-[#D4AF87]/30 text-[#2d1f2d] placeholder-[#6B5E50]/40 focus:outline-none focus:border-[#985f99]/50 focus:ring-2 focus:ring-[#985f99]/10 transition-all text-sm",
 };
 
 // ── CLIENT DETAIL MODAL ──────────────────────────────────────────────────────
@@ -123,6 +124,14 @@ export default function ReceptionistDashboard({ user, onLogout }) {
   const [viewMode, setViewMode] = useState("schedule");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  // Edit states
+  const [editingServiceId, setEditingServiceId] = useState(null);
+  const [editingServiceData, setEditingServiceData] = useState({});
+  const [editingTechId, setEditingTechId] = useState(null);
+  const [editingTechData, setEditingTechData] = useState({});
+  const [savingService, setSavingService] = useState(false);
+  const [savingTech, setSavingTech] = useState(false);
+
   // Modals
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showClientModal, setShowClientModal] = useState(false);
@@ -141,6 +150,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
   const [clientSearch, setClientSearch] = useState("");
   const [newClient, setNewClient] = useState({ name: "", phone: "", email: "" });
   const [newTech, setNewTech] = useState({ name: "", email: "", password: "", specialization: "" });
+  const [newService, setNewService] = useState({ name: "", price: "", duration: "", category: "" });
   const [bookingForm, setBookingForm] = useState({
     clientId: null, clientName: "", selectedServices: [],
     technician: "", time: "", date: formatDateKey(new Date()),
@@ -276,6 +286,124 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         ? p.selectedServices.filter(s => s.id !== service.id)
         : [...p.selectedServices, service],
     }));
+  };
+
+  // ── Service editing ──────────────────────────────────────────────────────
+  const startEditService = (service) => {
+    setEditingServiceId(service.id);
+    setEditingServiceData({ name: service.name, price: service.price, duration: service.duration, category: service.category });
+  };
+
+  const cancelEditService = () => {
+    setEditingServiceId(null);
+    setEditingServiceData({});
+  };
+
+  const saveService = async (serviceId) => {
+    const { name, price, duration, category } = editingServiceData;
+    if (!name?.trim()) return showToast("error", "Service name is required");
+    const parsedPrice = parseFloat(price);
+    const parsedDuration = parseInt(duration, 10);
+    if (isNaN(parsedPrice) || parsedPrice < 0) return showToast("error", "Invalid price");
+    if (isNaN(parsedDuration) || parsedDuration < 1) return showToast("error", "Invalid duration");
+
+    setSavingService(true);
+    const token = localStorage.getItem("access_token");
+    try {
+      const res = await fetch(`/proxy-api/services/${serviceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: name.trim(), price: parsedPrice, duration_minutes: parsedDuration, category: category?.trim() || "General" }),
+      });
+      if (!res.ok) {
+        const e = await res.json();
+        showToast("error", e.detail || "Failed to update service");
+        return;
+      }
+      setServices(prev => prev.map(s => s.id === serviceId
+        ? { ...s, name: name.trim(), price: parsedPrice, duration: parsedDuration, category: category?.trim() || "General" }
+        : s
+      ));
+      setEditingServiceId(null);
+      setEditingServiceData({});
+      showToast("success", "Service updated");
+    } catch {
+      showToast("error", "Network error");
+    } finally {
+      setSavingService(false);
+    }
+  };
+
+  const addService = async () => {
+    const { name, price, duration, category } = newService;
+    if (!name.trim()) return showToast("error", "Service name is required");
+    const parsedPrice = parseFloat(price);
+    const parsedDuration = parseInt(duration, 10);
+    if (isNaN(parsedPrice) || parsedPrice < 0) return showToast("error", "Invalid price");
+    if (isNaN(parsedDuration) || parsedDuration < 1) return showToast("error", "Invalid duration");
+
+    const token = localStorage.getItem("access_token");
+    try {
+      const res = await fetch("/proxy-api/services/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: name.trim(), price: parsedPrice, duration_minutes: parsedDuration, category: category?.trim() || "General" }),
+      });
+      if (!res.ok) {
+        const e = await res.json();
+        showToast("error", e.detail || "Failed to add service");
+        return;
+      }
+      const created = await res.json();
+      setServices(prev => [...prev, { id: created.id, name: created.name, price: parseFloat(created.price), duration: created.duration_minutes, category: created.category || "General" }]);
+      setNewService({ name: "", price: "", duration: "", category: "" });
+      setShowServiceModal(false);
+      showToast("success", "Service added");
+    } catch {
+      showToast("error", "Network error");
+    }
+  };
+
+  // ── Technician editing ───────────────────────────────────────────────────
+  const startEditTech = (tech) => {
+    setEditingTechId(tech.id);
+    setEditingTechData({ name: tech.name, specialization: tech.specialization || "", active_status: tech.active_status });
+  };
+
+  const cancelEditTech = () => {
+    setEditingTechId(null);
+    setEditingTechData({});
+  };
+
+  const saveTech = async (techId) => {
+    const { name, specialization, active_status } = editingTechData;
+    if (!name?.trim()) return showToast("error", "Technician name is required");
+
+    setSavingTech(true);
+    const token = localStorage.getItem("access_token");
+    try {
+      const res = await fetch(`/proxy-api/agents/${techId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: name.trim(), specialization: specialization?.trim() || null, active_status }),
+      });
+      if (!res.ok) {
+        const e = await res.json();
+        showToast("error", e.detail || "Failed to update technician");
+        return;
+      }
+      setAvailableTechs(prev => prev.map(t => t.id === techId
+        ? { ...t, name: name.trim(), specialization: specialization?.trim() || null, active_status }
+        : t
+      ));
+      setEditingTechId(null);
+      setEditingTechData({});
+      showToast("success", "Technician updated");
+    } catch {
+      showToast("error", "Network error");
+    } finally {
+      setSavingTech(false);
+    }
   };
 
 
@@ -509,6 +637,15 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         .glow-dot { box-shadow: 0 0 8px currentColor; }
         * { font-family: 'DM Sans', sans-serif; }
         .serif { font-family: 'DM Serif Display', serif; }
+        .edit-card { animation: slideDown 0.2s ease-out; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .toggle-pill { position: relative; display: inline-flex; align-items: center; width: 44px; height: 24px; border-radius: 99px; cursor: pointer; transition: background 0.25s ease; flex-shrink: 0; }
+        .toggle-pill .knob { position: absolute; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: white; transition: transform 0.25s ease; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+        .toggle-pill.on { background: #985f99; }
+        .toggle-pill.off { background: #ccc; }
+        .toggle-pill.on .knob { transform: translateX(20px); }
+        .service-row:hover .edit-trigger, .tech-row:hover .edit-trigger { opacity: 1; }
+        .edit-trigger { opacity: 0.6; transition: opacity 0.2s; }
       `}</style>
 
       <div className="min-h-screen bg-[#F8F6F2] text-[#2d1f2d]">
@@ -716,50 +853,197 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               </div>
             )}
 
-            {/* ─ SERVICES — matches manager exactly ─ */}
+            {/* ─ SERVICES ─ */}
             {viewMode === "services" && (
               <div className="space-y-6">
+                {/* Add Service button */}
+                <div className="flex justify-end">
+                  <button onClick={() => setShowServiceModal(true)}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-sm font-medium shadow-sm hover:shadow-md transition-all">
+                    <Plus className="w-4 h-4" /> Add Service
+                  </button>
+                </div>
+
                 {Object.entries(groupedServices).map(([category, items]) => (
                   <div key={category}>
-                    <p className="text-xs tracking-widest uppercase text-[#6B5E50]/40 mb-3">{category}</p>
+                    <div className="flex items-center gap-3 mb-3">
+                      <p className="text-xs tracking-widest uppercase text-[#6B5E50]/40 font-semibold">{category}</p>
+                      <div className="flex-1 h-px bg-[#D4AF87]/15" />
+                      <span className="text-[10px] text-[#6B5E50]/30 font-medium">{items.length} {items.length === 1 ? 'service' : 'services'}</span>
+                    </div>
                     <div className="space-y-2">
-                      {items.map(service => (
-                        <div key={service.id} className="stat-card border border-[#D4AF87]/20 rounded-xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
-                          <div>
-                            <p className="font-medium text-[#985f99]">{service.name}</p>
-                            <p className="text-xs text-[#6B5E50]/50 mt-0.5">{service.duration} min</p>
+                      {items.map(service => {
+                        const isEditing = editingServiceId === service.id;
+                        return (
+                          <div key={service.id} className="stat-card border border-[#D4AF87]/20 rounded-xl shadow-sm overflow-hidden">
+                            {isEditing ? (
+                              <div className="edit-card p-5 sm:p-6 bg-gradient-to-br from-white to-[#F8F6F2]/50">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                  <div>
+                                    <label className={S.label}>Name</label>
+                                    <input type="text" value={editingServiceData.name}
+                                      onChange={e => setEditingServiceData(p => ({ ...p, name: e.target.value }))}
+                                      className={S.inlineInput} />
+                                  </div>
+                                  <div>
+                                    <label className={S.label}>Price (R)</label>
+                                    <input type="number" min="0" step="0.01" value={editingServiceData.price}
+                                      onChange={e => setEditingServiceData(p => ({ ...p, price: e.target.value }))}
+                                      className={S.inlineInput} />
+                                  </div>
+                                  <div>
+                                    <label className={S.label}>Duration (min)</label>
+                                    <input type="number" min="1" value={editingServiceData.duration}
+                                      onChange={e => setEditingServiceData(p => ({ ...p, duration: e.target.value }))}
+                                      className={S.inlineInput} />
+                                  </div>
+                                </div>
+                                <div className="mt-4">
+                                  <label className={S.label}>Category</label>
+                                  <input type="text" value={editingServiceData.category}
+                                    onChange={e => setEditingServiceData(p => ({ ...p, category: e.target.value }))}
+                                    className={S.inlineInput} placeholder="e.g. Nails, Massage, Facial" />
+                                </div>
+                                <div className="flex gap-2 mt-5">
+                                  <button onClick={() => saveService(service.id)} disabled={savingService}
+                                    className="flex items-center gap-1.5 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-xs font-semibold transition-all disabled:opacity-50 shadow-sm">
+                                    <Save className="w-3.5 h-3.5" />
+                                    {savingService ? "Saving…" : "Save Changes"}
+                                  </button>
+                                  <button onClick={cancelEditService}
+                                    className="flex items-center gap-1.5 px-5 py-2.5 bg-white hover:bg-[#F8F6F2] border border-[#D4AF87]/30 text-[#6B5E50] rounded-xl text-xs font-semibold transition-all">
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="service-row p-4 sm:p-5 flex items-center justify-between group hover:bg-white/80 transition-all cursor-default">
+                                <div className="flex items-center gap-4 min-w-0">
+                                  <div className="w-10 h-10 rounded-xl bg-[#985f99]/8 border border-[#985f99]/10 flex items-center justify-center flex-shrink-0">
+                                    <Scissors className="w-4 h-4 text-[#985f99]/60" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-[#2d1f2d]">{service.name}</p>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <Clock className="w-3 h-3 text-[#6B5E50]/30" />
+                                      <span className="text-xs text-[#6B5E50]/50">{service.duration} min</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <p className="font-semibold text-[#D4AF87] text-base">R{service.price.toFixed(2)}</p>
+                                  <button onClick={() => startEditService(service)}
+                                    className="edit-trigger flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99]/8 hover:bg-[#985f99]/15 border border-[#985f99]/15 rounded-lg text-xs font-medium text-[#985f99] transition-all">
+                                    <Pencil className="w-3 h-3" /> Edit
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <p className="font-semibold text-[#D4AF87]">R{service.price.toFixed(2)}</p>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
+                {services.length === 0 && (
+                  <div className="text-center py-20">
+                    <Scissors className="w-10 h-10 text-[#D4AF87]/30 mx-auto mb-3" />
+                    <p className="text-[#6B5E50]/40 text-sm">No services yet</p>
+                    <button onClick={() => setShowServiceModal(true)}
+                      className="mt-3 text-xs font-medium text-[#985f99] hover:text-[#985f99]/80 transition-colors">
+                      + Add your first service
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* ─ TECHNICIANS — matches manager exactly ─ */}
+            {/* ─ TECHNICIANS ─ */}
             {viewMode === "agents" && (
               <div>
-                <div className="flex justify-end mb-6">
+                <div className="flex justify-end mb-5">
                   <button onClick={() => setShowTechModal(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-sm font-medium shadow-sm transition-all">
+                    className="flex items-center gap-2 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-sm font-medium shadow-sm hover:shadow-md transition-all">
                     <Plus className="w-4 h-4" /> Add Technician
                   </button>
                 </div>
                 <div className="space-y-3">
-                  {availableTechs.map(agent => (
-                    <div key={agent.id} className="stat-card border border-[#D4AF87]/20 rounded-xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all">
-                      <div className="flex items-start gap-3">
-                        <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 glow-dot ${agent.active_status ? "bg-emerald-500 text-emerald-500" : "bg-red-400 text-red-400"}`} />
-                        <div className="min-w-0">
-                          <p className="font-semibold text-[#985f99]">{agent.name}</p>
-                          <p className="text-xs text-[#6B5E50]/60 mt-0.5 truncate">{agent.email}</p>
-                          <p className="text-xs text-[#6B5E50]/40 mt-0.5">{agent.specialization || "General"}</p>
-                        </div>
+                  {availableTechs.map(agent => {
+                    const isEditing = editingTechId === agent.id;
+                    return (
+                      <div key={agent.id} className="stat-card border border-[#D4AF87]/20 rounded-xl shadow-sm overflow-hidden">
+                        {isEditing ? (
+                          <div className="edit-card p-5 sm:p-6 bg-gradient-to-br from-white to-[#F8F6F2]/50">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div>
+                                <label className={S.label}>Name</label>
+                                <input type="text" value={editingTechData.name}
+                                  onChange={e => setEditingTechData(p => ({ ...p, name: e.target.value }))}
+                                  className={S.inlineInput} />
+                              </div>
+                              <div>
+                                <label className={S.label}>Specialization</label>
+                                <input type="text" value={editingTechData.specialization}
+                                  onChange={e => setEditingTechData(p => ({ ...p, specialization: e.target.value }))}
+                                  className={S.inlineInput} placeholder="e.g. Massage, Nails" />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 mt-4 p-3 bg-[#F8F6F2] rounded-xl">
+                              <span className="text-xs font-semibold tracking-widest uppercase text-[#6B5E50]/50">Status</span>
+                              <button type="button"
+                                onClick={() => setEditingTechData(p => ({ ...p, active_status: !p.active_status }))}
+                                className={`toggle-pill ${editingTechData.active_status ? "on" : "off"}`}
+                                aria-label="Toggle active status">
+                                <span className="knob" />
+                              </button>
+                              <span className={`text-xs font-medium ${editingTechData.active_status ? "text-emerald-600" : "text-[#6B5E50]/50"}`}>
+                                {editingTechData.active_status ? "Active — available for bookings" : "Inactive — hidden from bookings"}
+                              </span>
+                            </div>
+                            <div className="flex gap-2 mt-5">
+                              <button onClick={() => saveTech(agent.id)} disabled={savingTech}
+                                className="flex items-center gap-1.5 px-5 py-2.5 bg-[#985f99] hover:bg-[#985f99]/90 text-white rounded-xl text-xs font-semibold transition-all disabled:opacity-50 shadow-sm">
+                                <Save className="w-3.5 h-3.5" />
+                                {savingTech ? "Saving…" : "Save Changes"}
+                              </button>
+                              <button onClick={cancelEditTech}
+                                className="flex items-center gap-1.5 px-5 py-2.5 bg-white hover:bg-[#F8F6F2] border border-[#D4AF87]/30 text-[#6B5E50] rounded-xl text-xs font-semibold transition-all">
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="tech-row p-4 sm:p-5 hover:bg-white/80 transition-all">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${agent.active_status ? "bg-emerald-50 border border-emerald-200/50" : "bg-red-50 border border-red-200/50"}`}>
+                                  <div className={`w-2.5 h-2.5 rounded-full glow-dot ${agent.active_status ? "bg-emerald-500 text-emerald-500" : "bg-red-400 text-red-400"}`} />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-[#2d1f2d]">{agent.name}</p>
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="text-xs text-[#6B5E50]/50 truncate">{agent.email}</span>
+                                    <span className="text-[#D4AF87]/40">·</span>
+                                    <span className="text-xs text-[#985f99]/60 font-medium">{agent.specialization || "General"}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <button onClick={() => startEditTech(agent)}
+                                className="edit-trigger flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99]/8 hover:bg-[#985f99]/15 border border-[#985f99]/15 rounded-lg text-xs font-medium text-[#985f99] transition-all flex-shrink-0">
+                                <Pencil className="w-3 h-3" /> Edit
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
+                    );
+                  })}
+                  {availableTechs.length === 0 && (
+                    <div className="text-center py-20">
+                      <UserCog className="w-10 h-10 text-[#D4AF87]/30 mx-auto mb-3" />
+                      <p className="text-[#6B5E50]/40 text-sm">No technicians yet</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
             )}
@@ -954,6 +1238,50 @@ export default function ReceptionistDashboard({ user, onLogout }) {
               <div className="flex gap-3 mt-6">
                 <button onClick={() => { setShowTechModal(false); setNewTech({ name: "", email: "", password: "", specialization: "" }); }} className={S.btnSecondary}>Cancel</button>
                 <button onClick={addTechnician} className={S.btnPrimary}>Add Technician</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── ADD SERVICE MODAL ── */}
+        {showServiceModal && (
+          <div className={S.modalOverlay}>
+            <div className={`${S.modalBox} max-w-md`}>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="serif text-2xl text-[#985f99]">Add New Service</h3>
+                <button onClick={() => { setShowServiceModal(false); setNewService({ name: "", price: "", duration: "", category: "" }); }}
+                  className="p-2 rounded-xl hover:bg-[#F8F6F2] text-[#6B5E50] transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className={S.label}>Service Name</label>
+                  <input type="text" placeholder="e.g. Swedish Massage" value={newService.name}
+                    onChange={e => setNewService(p => ({ ...p, name: e.target.value }))} className={S.inputClass} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={S.label}>Price (R)</label>
+                    <input type="number" min="0" step="0.01" placeholder="350.00" value={newService.price}
+                      onChange={e => setNewService(p => ({ ...p, price: e.target.value }))} className={S.inputClass} />
+                  </div>
+                  <div>
+                    <label className={S.label}>Duration (min)</label>
+                    <input type="number" min="1" placeholder="60" value={newService.duration}
+                      onChange={e => setNewService(p => ({ ...p, duration: e.target.value }))} className={S.inputClass} />
+                  </div>
+                </div>
+                <div>
+                  <label className={S.label}>Category</label>
+                  <input type="text" placeholder="e.g. Massage, Nails, Facial" value={newService.category}
+                    onChange={e => setNewService(p => ({ ...p, category: e.target.value }))} className={S.inputClass} />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => { setShowServiceModal(false); setNewService({ name: "", price: "", duration: "", category: "" }); }}
+                  className={S.btnSecondary}>Cancel</button>
+                <button onClick={addService} className={S.btnPrimary}>Add Service</button>
               </div>
             </div>
           </div>
