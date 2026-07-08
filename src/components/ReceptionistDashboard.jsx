@@ -597,7 +597,7 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         onClick={() => openEdit(booking)}
         className="flex items-center gap-1.5 px-3 py-1.5 bg-[#985f99]/10 border border-[#985f99]/20 rounded-lg text-xs font-medium text-[#985f99] hover:bg-[#985f99]/20 transition-colors"
       >
-        <Edit3 className="w-3.5 h-3.5" /> Edit
+        <Pencil className="w-3.5 h-3.5" /> Edit
       </button>
       <button
         onClick={() => deleteBooking(booking)}
