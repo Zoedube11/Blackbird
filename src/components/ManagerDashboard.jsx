@@ -164,9 +164,19 @@ export default function ManagerDashboard({ user, onLogout }) {
     return isNaN(num) ? "0.00" : num.toFixed(2);
   };
 
+  // ── TIMEZONE HELPER: parse any date string safely as SAST local naive time ──
+  const parseToSASTDate = (dateString) => {
+    if (!dateString) return new Date();
+    const cleanString = dateString.replace(/Z$/, "").replace(/(\+[0-9]{2}:[0-9]{2}|-[0-9]{2}:[0-9]{2})$/, "");
+    return new Date(cleanString.includes("T")
+      ? `${cleanString}+02:00`
+      : `${cleanString}T00:00:00+02:00`
+    );
+  };
+
   // ── TIMEZONE HELPER ──
-  const toSASTTime = (utcString) => {
-    return new Date(utcString).toLocaleTimeString("en-ZA", {
+  const toSASTTime = (dateString) => {
+    return parseToSASTDate(dateString).toLocaleTimeString("en-ZA", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
