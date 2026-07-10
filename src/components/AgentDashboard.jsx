@@ -18,10 +18,20 @@ const fixDecimalResponse = (text) => {
   }
 };
 
-// ── TIMEZONE HELPER: get SAST hour integer from UTC string ──
-const getSASTHour = (utcString) => {
+// ── TIMEZONE HELPER: parse any date string safely as SAST local naive time ──
+const parseToSASTDate = (dateString) => {
+  if (!dateString) return new Date();
+  const cleanString = dateString.replace(/Z$/, "").replace(/(\+[0-9]{2}:[0-9]{2}|-[0-9]{2}:[0-9]{2})$/, "");
+  return new Date(cleanString.includes("T")
+    ? `${cleanString}+02:00`
+    : `${cleanString}T00:00:00+02:00`
+  );
+};
+
+// ── TIMEZONE HELPER: get SAST hour integer from UTC/ISO string ──
+const getSASTHour = (dateString) => {
   return parseInt(
-    new Date(utcString).toLocaleString("en-US", {
+    parseToSASTDate(dateString).toLocaleString("en-US", {
       hour: "numeric",
       hour12: false,
       timeZone: "Africa/Johannesburg",
@@ -30,9 +40,9 @@ const getSASTHour = (utcString) => {
   );
 };
 
-// ── TIMEZONE HELPER: format UTC string as SAST time display ──
-const toSASTTime = (utcString) => {
-  return new Date(utcString).toLocaleTimeString("en-ZA", {
+// ── TIMEZONE HELPER: format UTC/ISO string as SAST time display ──
+const toSASTTime = (dateString) => {
+  return parseToSASTDate(dateString).toLocaleTimeString("en-ZA", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -67,7 +77,7 @@ export default function AgentDashboard({ user, onLogout }) {
         const data = fixDecimalResponse(text);
         const grouped = data.reduce((acc, b) => {
           // ── FIX: group by SAST date, not UTC date ──
-          const dateKey = new Date(b.start_time).toLocaleDateString("en-CA", {
+          const dateKey = parseToSASTDate(b.start_time).toLocaleDateString("en-CA", {
             timeZone: "Africa/Johannesburg",
           });
           if (!acc[dateKey]) acc[dateKey] = [];

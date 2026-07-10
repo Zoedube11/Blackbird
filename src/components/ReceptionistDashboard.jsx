@@ -22,10 +22,20 @@ const fixDecimalResponse = (text) => {
   }
 };
 
-// ── TIMEZONE HELPER: get SAST hour integer from UTC string ──
-const getSASTHour = (utcString) => {
+// ── TIMEZONE HELPER: parse any date string safely as SAST local naive time ──
+const parseToSASTDate = (dateString) => {
+  if (!dateString) return new Date();
+  const cleanString = dateString.replace(/Z$/, "").replace(/(\+[0-9]{2}:[0-9]{2}|-[0-9]{2}:[0-9]{2})$/, "");
+  return new Date(cleanString.includes("T")
+    ? `${cleanString}+02:00`
+    : `${cleanString}T00:00:00+02:00`
+  );
+};
+
+// ── TIMEZONE HELPER: get SAST hour integer from UTC/ISO string ──
+const getSASTHour = (dateString) => {
   return parseInt(
-    new Date(utcString).toLocaleString("en-US", {
+    parseToSASTDate(dateString).toLocaleString("en-US", {
       hour: "numeric",
       hour12: false,
       timeZone: "Africa/Johannesburg",
@@ -34,9 +44,9 @@ const getSASTHour = (utcString) => {
   );
 };
 
-// ── TIMEZONE HELPER: format UTC string as SAST time display ──
-const toSASTTime = (utcString) => {
-  return new Date(utcString).toLocaleTimeString("en-ZA", {
+// ── TIMEZONE HELPER: format UTC/ISO string as SAST time display ──
+const toSASTTime = (dateString) => {
+  return parseToSASTDate(dateString).toLocaleTimeString("en-ZA", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -46,9 +56,8 @@ const toSASTTime = (utcString) => {
 
 // ── TIMEZONE HELPER: convert SAST date+time input to UTC ISO string ──
 const sastInputToUTC = (dateStr, timeStr) => {
-  const sastDateTime = new Date(`${dateStr}T${timeStr}:00`);
-  const utcDateTime = new Date(sastDateTime.getTime() - (2 * 60 * 60 * 1000));
-  return utcDateTime.toISOString();
+  const sastDateTime = parseToSASTDate(`${dateStr}T${timeStr}:00`);
+  return sastDateTime.toISOString();
 };
 
 // ─── Shared style tokens ───────────────────────────────────
@@ -189,9 +198,10 @@ export default function ReceptionistDashboard({ user, onLogout }) {
         if (bRes.ok) {
           const text = await bRes.text();
           const data = fixDecimalResponse(text);
+          console.log("Raw bookings from API:", data);
           if (Array.isArray(data)) {
             const grouped = data.reduce((acc, b) => {
-              const sastDateKey = new Date(b.start_time).toLocaleDateString("en-CA", {
+              const sastDateKey = parseToSASTDate(b.start_time).toLocaleDateString("en-CA", {
                 timeZone: "Africa/Johannesburg",
               });
               if (!acc[sastDateKey]) acc[sastDateKey] = [];
